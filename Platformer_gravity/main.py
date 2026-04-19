@@ -26,11 +26,17 @@ while run:
             if e.key == K_4: player.set_gravity(1, 0)   # Вправо
             #
 
-            if e.key == K_f or e.key == K_RSHIFT: player.apply_streetfly()   # БАГ КНОПКА НЕ ЮЗАТИ ПРИ ПАДІННІ :3
+            if e.key == K_LSHIFT or e.key == K_RSHIFT: player.apply_streetfly()  # БАГ КНОПКА НЕ ЮЗАТИ ПРИ ПАДІННІ :3
 
+            # Перемикання режиму керування (WASD для руху чи для гравітації)
+            if e.key == K_m:
+                player.switch_control_mode()
+
+            # Перемикання кольорової палітри гравця
             if e.key == K_TAB:
                 player.current_preset = "cyber" if player.current_preset == "classic" else "classic"
                 player.update_color()
+
 
     # Логіка
     player.handle_input()

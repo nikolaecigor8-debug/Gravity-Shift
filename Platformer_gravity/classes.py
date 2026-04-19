@@ -46,45 +46,63 @@ class Player(pygame.sprite.Sprite):
         self.streetfly_flash = False
         
         self.base_image = pygame.Surface((self.size, self.size))
-        self.update_color() # Метод, який ми створимо нижче
+        self.update_color()
         self.image = self.base_image.copy()
+
+
+        self.control_mode = "arrows_only" # Варіанти: "both", "arrows_only", "wasd_only"
 
     def handle_input(self):
             keys = pygame.key.get_pressed()
             
-            # 1. ОБНУЛЕННЯ ШВИДКОСТІ (перпендикулярно гравітації)
-            # Якщо падаємо по Y, обнуляємо X. Якщо по X — обнуляємо Y.
+            if self.control_mode == "both":
+                move_left  = keys[pygame.K_LEFT]  or keys[pygame.K_a]
+                move_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
+                move_up    = keys[pygame.K_UP]    or keys[pygame.K_w]
+                move_down  = keys[pygame.K_DOWN]  or keys[pygame.K_s]
+            elif self.control_mode == "arrows_only":
+                move_left, move_right = keys[pygame.K_LEFT], keys[pygame.K_RIGHT]
+                move_up, move_down    = keys[pygame.K_UP],   keys[pygame.K_DOWN]
+            else: # wasd_only
+                move_left, move_right = keys[pygame.K_a], keys[pygame.K_d]
+                move_up, move_down    = keys[pygame.K_w], keys[pygame.K_s]
+
+            # 1. РУХ (перпендикулярно гравітації)
             if self.gravity_vec.y != 0:
                 self.vel.x = 0
-                if keys[pygame.K_LEFT] or keys[pygame.K_a]:  self.vel.x = -self.speed
-                if keys[pygame.K_RIGHT] or keys[pygame.K_d]: self.vel.x = self.speed
+                if move_left:  self.vel.x = -self.speed
+                if move_right: self.vel.x = self.speed
             else:
                 self.vel.y = 0
-                if keys[pygame.K_UP] or keys[pygame.K_w]:    self.vel.y = -self.speed
-                if keys[pygame.K_DOWN] or keys[pygame.K_s]:  self.vel.y = self.speed
-            #PS: wasd буде пресетом в налаштуваннях, одночасної дії неповинно бути.
+                if move_up:    self.vel.y = -self.speed
+                if move_down:  self.vel.y = self.speed
 
-            # 2. СТРИБОК (завжди ВГОРУ, якщо гравітація ВНИЗ)
-            # Визначаємо "клавішу стрибка" як ту, що протилежна вектору гравітації
-            jump_key = None
-            fall_key = None
+            # 2. СТРИБОК ТА ПАДІННЯ (динамічно вибираємо кнопки)
+            jump_press = False
+            fall_press = False
 
-            if self.gravity_vec == (0, 1):   # Гравітація вниз
-                jump_key, fall_key = pygame.K_UP, pygame.K_DOWN
-            elif self.gravity_vec == (0, -1): # Гравітація вгору
-                jump_key, fall_key = pygame.K_DOWN, pygame.K_UP
-            elif self.gravity_vec == (1, 0):  # Гравітація вправо
-                jump_key, fall_key = pygame.K_LEFT, pygame.K_RIGHT
-            elif self.gravity_vec == (-1, 0): # Гравітація вліво
-                jump_key, fall_key = pygame.K_RIGHT, pygame.K_LEFT
+            if self.gravity_vec   == (0, 1): jump_press, fall_press = move_up,    move_down
+            elif self.gravity_vec == (0,-1): jump_press, fall_press = move_down,  move_up
+            elif self.gravity_vec == (1, 0): jump_press, fall_press = move_left,  move_right
+            elif self.gravity_vec == (-1,0): jump_press, fall_press = move_right, move_left
 
-            # Виконання стрибка
-            if jump_key and keys[jump_key] and self.on_ground:
+            if jump_press and self.on_ground:
                 self.vel = -self.gravity_vec * self.jump_power
                 self.on_ground = False
 
-            # Агресивне падіння
-            self.is_fast_falling = keys[fall_key] if fall_key else False
+            self.is_fast_falling = fall_press
+
+    def switch_control_mode(self):
+        """Циклічне перемикання між режимами керування"""
+        if self.control_mode == "both":
+            self.control_mode = "arrows_only"
+        elif self.control_mode == "arrows_only":
+            self.control_mode = "wasd_only"
+        else:
+            self.control_mode = "both"
+        
+        # Виведемо в консоль для тесту, щоб ти бачив, що режим змінився
+        print(f"Поточний режим керування: {self.control_mode}")
 
     def set_gravity(self, x, y):
         """Зміна напрямку гравітації та оновлення кольору згідно з пресетом"""
@@ -200,7 +218,7 @@ class Player(pygame.sprite.Sprite):
 
         
             ''' Якщо раптом ти це знайшов, це фан штучка щоб грат від перемінни гравітації.
-                Вона вставляється замість "#" (28 стр.), і може випликати помилки чи конфліктну реакцію при змінні керування! '''
+                Вона вставляється замість "#" (28 стр.), i може випликати помилки чи конфліктну реакцію при змінні керування! '''
             # if e.key == K_s: player.set_gravity(0, 1)   # S - вниз
             # if e.key == K_w: player.set_gravity(0, -1)  # W - вгору
             # if e.key == K_a: player.set_gravity(-1, 0)  # A - вліво
@@ -221,7 +239,7 @@ class Player(pygame.sprite.Sprite):
 
     def update_visuals(self):
             """Ефект 'резинки' + Стрітфлай спалах"""
-            if self.is_fast_falling:
+            if self.is_fast_falling and not self.on_ground:
                 stretch, shrink = 1.4, 0.7
                 if self.gravity_vec.y != 0:
                     new_w, new_h = int(self.size * shrink), int(self.size * stretch)
