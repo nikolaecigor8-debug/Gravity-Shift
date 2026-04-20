@@ -47,16 +47,14 @@ while run:
         if e.type == QUIT: 
             run = False
         
-            # Чит-коди для розробника: міняємо нравітацію натисканням цифр.
+        # Чит-коди для розробника: міняємо нравітацію натисканням цифр.
+        if e.type == KEYDOWN:
             if e.key == K_1: player.set_gravity(0, 1)   # Вниз
             if e.key == K_2: player.set_gravity(0, -1)  # Вгору
             if e.key == K_3: player.set_gravity(-1, 0)  # Вліво
             if e.key == K_4: player.set_gravity(1, 0)   # Вправо
-
-            if e.type == KEYDOWN:
-                if e.key == K_r:  # КНОПКА СМЕРТІ. Якщо застряг або просто набридло жити.
-                    player.respawn()
-
+            if e.key == K_r:  # КНОПКА СМЕРТІ. Якщо застряг або просто набридло жити.
+                player.respawn()
 
             # Механіка Streetfly. Має ліміт — спалах є, інерція зникає.
             if e.key == K_LSHIFT or e.key == K_RSHIFT: 
