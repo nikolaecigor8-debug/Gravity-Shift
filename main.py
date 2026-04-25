@@ -10,6 +10,9 @@ window = display.set_mode((800, 600), RESIZABLE)
 display.set_caption("Gravity Shift")
 clk = time.Clock()
 
+x_window, y_window = 0, 0
+width_window, height_window = 1500, 1000
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, "objects.json")
 
@@ -21,21 +24,23 @@ def load_game_world(filename):
     portals = sprite.Group()
     campfires = sprite.Group()
 
-    # Нумеруємо платформи
+    # Нумеруємо платформи. | Нотатка ідеї, norm умова платформи що на ню просто можна втаритися або спертися. 
+    # Якщо змінити і уточнити це в json можна створити об'єкт вбивцю чи слизьку поверхню (friction збільшити)
     for i, p in enumerate(data.get("platforms", [])):
-        platforms.add(Platform(p["x"], p["y"], p["w"], p["h"], obj_id=i))
+        p_type = p.get("type", "norm")
+        platforms.add(Platform(p["x"], p["y"], p["w"], p["h"], p_type, obj_id=i))
 
     # Нумеруємо портали (продовжуємо або окрема нумерація)
     for i, p in enumerate(data.get("portals", [])):
-        portals.add(TunnelPortal(p["x"], p["y"], p["w"], p["h"], p["target_gravity"], p["color"], obj_id=i))
+        portals.add(TunnelPortal(p["x"], p["y"], p["target_gravity"], w=p.get("w"), h=p.get("h"), obj_id=i))
 
     # Нумеруємо пад-стрибуни
     for i, j in enumerate(data.get("jump_pads", [])):
-        portals.add(JumpPad(j["x"], j["y"], j["w"], j["h"], j["target_gravity"], j["color"], obj_id=i))
+        portals.add(JumpPad(j["x"], j["y"], j["target_gravity"], w=j.get("w"), h=j.get("h"), obj_id=i))
 
     # Нумеруємо багаття
     for i, c in enumerate(data.get("campfires", [])):
-        campfires.add(Campfire(c["x"], c["y"], side=c["side"], obj_id=i))
+        campfires.add(Campfire(c["x"], c["y"], side=c.get("side", "center"), obj_id=i))
 
     # Фініш залишаємо без ID (як ти і хотів)
     f_data = data.get("finish")
@@ -90,7 +95,7 @@ while run:
                     player.respawn()
 
                 # Механіка Streetfly. Має ліміт — спалах є, інерція зникає.
-                if e.key == K_LSHIFT or e.key == K_RSHIFT: 
+                if e.key == K_LSHIFT or e.key == K_RSHIFT or e.key == K_f or e.key == K_l: 
                     player.apply_streetfly()
 
                 # Клавіша "M" для тих, кому не подобається стандартне керування.
@@ -117,7 +122,7 @@ while run:
                     window = display.set_mode((800, 600), RESIZABLE)
                 else:
                     window = display.set_mode((0, 0), FULLSCREEN)
-                    
+
     # --- ЛОГІКА ВЗАЄМОДІЇ ---
     for fire in campfires:
         if fire.rect.colliderect(player.rect):
@@ -126,15 +131,15 @@ while run:
     
     # --- КРИТИЧНИЙ БАГО-ФІКС (Друга межа респавну) ---
     # Якщо гравець подолав фізичну стіну (10000) і вилетів на +5 пікселів далі — респавн.
-    if (player.rect.right > 10005 or player.rect.left < -5 or 
-        player.rect.bottom > 10005 or player.rect.top < -5):
+    if (player.rect.right > width_window + 5 or player.rect.left < -5 or 
+        player.rect.bottom > height_window + 5 or player.rect.top < -5):
         player.respawn()
 
 
     # Послідовність важлива: спочатку ввід, потім фізика, потім візуал.
     if not game_won:
         player.handle_input()
-        player.apply_physics(platforms, portals)
+        player.apply_physics(platforms, portals, width_window, height_window)
         player.update_visuals()
         finish_obj.check_interaction(player.rect)
         camera.update(player)
@@ -145,7 +150,7 @@ while run:
     camera_offset = camera.camera.topleft
 
     # Малюємо тонку білу лінію по периметру всього світу
-    world_border = Rect(0, 0, 10000, 10000).move(camera_offset)
+    world_border = Rect(x_window, y_window, width_window, height_window).move(camera_offset)
     draw.rect(window, (255, 255, 255), world_border, 1)
 
 

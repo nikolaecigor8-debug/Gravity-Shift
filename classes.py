@@ -20,7 +20,7 @@
 #   Campfires    - це багаття працює як точка збереження, спавнить поруч зправа або зліва залежно від налаштування. Має фіксовані розміри і безобмежену кількість копій. (тоді спавнити тебе буде останні дотичний до тебе) 
 #   finish       - це фінал, великі червонеі двері що просять G для активації, закінчуючи гру і виводячи... Щоб там не було, але виводить..
 
-
+# https://github.com/nikolaecigor8-debug/Gravity-Shift.git
 
 import pygame
 import random
@@ -187,7 +187,7 @@ class Player(pygame.sprite.Sprite):
         self.vel = pygame.Vector2(0, 0)
         self.update_color()
 # apply_physics_with_window - більше не буде, прощавайте старі межі!
-    def apply_physics(self, platforms, portals):
+    def apply_physics(self, platforms, portals, world_w, world_h):
             """Ядро гри. Розрахунок фізики та колізій у великому світі 10000x10000."""
             self.on_ground = False 
             
@@ -212,8 +212,8 @@ class Player(pygame.sprite.Sprite):
                 self.rect.left = 0
                 self.vel.x = 0
                 if self.gravity_vec.x == -1: self.on_ground = True
-            elif self.rect.right > 10000:
-                self.rect.right = 10000
+            elif self.rect.right > world_w:
+                self.rect.right = world_w
                 self.vel.x = 0
                 if self.gravity_vec.x == 1: self.on_ground = True
 
@@ -234,8 +234,8 @@ class Player(pygame.sprite.Sprite):
                 self.rect.top = 0
                 self.vel.y = 0
                 if self.gravity_vec.y == -1: self.on_ground = True
-            elif self.rect.bottom > 10000:
-                self.rect.bottom = 10000
+            elif self.rect.bottom > world_h:
+                self.rect.bottom = world_h
                 self.vel.y = 0
                 if self.gravity_vec.y == 1: self.on_ground = True
 
@@ -297,24 +297,43 @@ class Player(pygame.sprite.Sprite):
         self.set_gravity(0, 1) # Скидаємо все на заводські налаштування (гравітація вниз)
 
 class Platform(DebugSprite):
-    def __init__(self, x, y, w, h, obj_id=0):
+    def __init__(self, x, y, w, h, p_type="norm", obj_id=0):
         super().__init__(x, y, w, h, obj_id) # Викликаємо конструктор бази
+        self.p_type = p_type
         self.image = pygame.Surface((w, h))
         self.image.fill((100, 100, 100))
-
+        # Прикол тест нової необов'язкової опції в словнику якщо це за умовчанням тоді чорний :3
+        if self.p_type == "norm":
+            self.image.fill((100, 100, 100))
+        else:
+            self.image.fill((0, 0, 0))
+            
     def draw(self, screen, camera_offset, dev_mode=False):
         screen.blit(self.image, self.rect.move(camera_offset))
         self.draw_debug(screen, dev_mode, camera_offset)
 
 class TunnelPortal(DebugSprite):
-    def __init__(self, x, y, w, h, target_gravity, color, obj_id=0):
+    def __init__(self, x, y, target_gravity, w=None, h=None, color=(0, 0, 0), obj_id=0):
+        # 1. АВТОМАТИЧНЕ ВИЗНАЧЕННЯ РОЗМІРІВ
+        if w is None or h is None:
+            if target_gravity[0] != 0: # Ліво [-1, 0] або Вправо [1, 0]
+                w, h = 30, 100         #    |Вертикальний   портал|
+            else:                      # Вгору [0, -1] або Вниз [0, 1]
+                w, h = 100, 30         #    |Горизонтальний портал|
+
         super().__init__(x, y, w, h, obj_id)
         # Портал — це тригер, який змінює фізику світу при проходженні крізь нього.
         self.rect = pygame.Rect(x, y, w, h)
         
         # Поділ на зону А і Б: щоб зрозуміти, що гравець дійсно ПЕРЕЙШОВ межу, а не просто торкнувся краю.
-        self.rect_a = pygame.Rect(x, y, w // 2, h)
-        self.rect_b = pygame.Rect(x + w // 2, y, w // 2, h)
+        if w > h: 
+            # Горизонтальний портал: ділимо по висоті (верхня і задня половини)
+            self.rect_a = pygame.Rect(x, y, w, h // 2)
+            self.rect_b = pygame.Rect(x, y + h // 2, w, h // 2)
+        else:
+            # Вертикальний портал: ділимо по ширині (ліва і права половини)
+            self.rect_a = pygame.Rect(x, y, w // 2, h)
+            self.rect_b = pygame.Rect(x + w // 2, y, w // 2, h)
         
         self.target_gravity = target_gravity
         self.color = color
@@ -323,11 +342,11 @@ class TunnelPortal(DebugSprite):
     def update_color(self, presets, current_preset):
         """Оновлюємо колір порталу відповідно до пресета гравця"""
         gravity_tuple = tuple(self.target_gravity)
-        self.color = presets[current_preset].get(gravity_tuple, self.color)
+        self.color = presets[current_preset].get(gravity_tuple, self.color) #
 
     def check_collision(self, player):
-        # Якщо гравець накрив собою обидві "половинки" порталу — час міняти гравітацію.
-        hit_a = self.rect_a.colliderect(player.rect)
+        # Механіка спрацювання: гравець має торкнутися обох зон одночасно
+        hit_a = self.rect_a.colliderect(player.rect) 
         hit_b = self.rect_b.colliderect(player.rect)
 
         if hit_a and hit_b:
@@ -335,7 +354,7 @@ class TunnelPortal(DebugSprite):
                 player.set_gravity(*self.target_gravity)
                 self.is_triggered = True
         elif not hit_a and not hit_b:
-            # Скидаємо тригер, коли гравець повністю вийшов з порталу
+            # Скидаємо тригер лише коли гравець повністю вийшов з об'єкта
             self.is_triggered = False
 
     def draw(self, screen, camera_offset, dev_mode=False):
@@ -344,9 +363,15 @@ class TunnelPortal(DebugSprite):
         self.draw_debug(screen, dev_mode, camera_offset)
 
 class JumpPad(DebugSprite):
-    def __init__(self, x, y, w, h, target_gravity, color, obj_id=0):
-        super().__init__(x, y, w, h, obj_id)
+    def __init__(self, x, y, target_gravity, w=None, h=None, color=(0, 0, 0), obj_id=0):
         # JumpPad — спрощена версія порталу. Достатньо просто доторкнутися.
+        if w is None or h is None:
+            if target_gravity[1] != 0: # Гравітація вгору/вниз -> пад лежить горизонтально
+                w, h = 70, 7
+            else:                      # Гравітація вліво/вправо -> пад стоїть вертикально
+                w, h = 7, 70
+
+        super().__init__(x, y, w, h, obj_id)
         self.rect = pygame.Rect(x, y, w, h)
         self.target_gravity = target_gravity
         self.color = color
@@ -370,21 +395,29 @@ class JumpPad(DebugSprite):
         self.draw_debug(screen, dev_mode, camera_offset)
 
 class Campfire(DebugSprite):
-    def __init__(self, x, y, side="right", obj_id=0):
-        super().__init__(x, y, 50, 30, obj_id)
+    def __init__(self, x, y, side="center", obj_id=0):
+        # Стандартний розмір багаття 50x30
+        w, h = 50, 30
+        super().__init__(x, y, w, h, obj_id)
         # Багаття: затишок і безпека.
-        self.rect = pygame.Rect(x, y, 50, 30)
+        self.rect = pygame.Rect(x, y, w, h)
         self.color = (255, 140, 0) # Помаранчевий вогник
         self.side = side
         
-        # Смарт-спавн: вираховуємо, де поставити гравця після смерті, щоб він не застряг у вогні.
+        # Смарт-спавн: вираховуємо, де поставити гравця після смерті.
         offset = 20 
         player_w = 50 
         
+        # ЛОГІКА РОЗУМНОГО СПАВНУ
         if self.side == "right":
-            self.spawn_x = x + self.rect.width + offset
-        else:
+            # Справа від багаття
+            self.spawn_x = x + w + offset
+        elif self.side == "left":
+            # Зліва від багаття
             self.spawn_x = x - player_w - offset
+        else:
+            # По центру (center) або якщо вказано невірно
+            self.spawn_x = x + (w // 2) - (player_w // 2)
         
         # БАГ ФІКС: Підняття спавну на тррохи вище дасть не втопитися в платформу що в наслідку кине тебе з неї (зправа або зліва, через роботу фізики)
         self.spawn_y = y - 20
@@ -393,6 +426,12 @@ class Campfire(DebugSprite):
         # Можна було б намалювати анімований вогонь, але поки що це стильний помаранчевий прямокутник.
         draw_rect = self.rect.move(camera_offset)
         pygame.draw.rect(screen, self.color, draw_rect)
+        
+        # Якщо увімкнено dev_mode, можна малювати крапку, де саме з'явиться гравець
+        if dev_mode:
+            spawn_point = (self.spawn_x + camera_offset[0] + 25, self.spawn_y + camera_offset[1] + 25)
+            pygame.draw.circle(screen, (0, 255, 0), spawn_point, 5)
+            
         self.draw_debug(screen, dev_mode, camera_offset)
 
 class Finish(pygame.sprite.Sprite):

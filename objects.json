@@ -5,69 +5,65 @@
       "y": 200,
       "w": 200,
       "h": 50,
-      "type": "test_rect"
+      "type": "norm"
     },
         {
       "x": 50,
       "y": 500,
       "w": 700,
-      "h": 50,
-      "type": "test_rect"
+      "h": 50
     },
         {
       "x": 50,
       "y": 0,
       "w": 700,
-      "h": 50,
-      "type": "test_rect"
+      "h": 50
     }
   ],
   "portals": [
     {
       "x": 200,
       "y": 300,
-      "w": 30,
-      "h": 100,
-      "target_gravity": [1, 0],
-      "color": [0,0,0],
-      "name": "right_portal"
+      "target_gravity": [1, 0]
     },
     {
       "x": 600,
       "y": 300,
-      "w": 30,
-      "h": 100,
-      "target_gravity": [-1, 0],
-      "color": [0,0,0],
-      "name": "left_portal"
-    }
-  ],
+      "target_gravity": [-1, 0]
+    },
+  {
+    "x": 800,
+    "y": 600,
+    "target_gravity": [0, -1]
+  }
+],
   "jump_pads": [
     {
       "x": 70,
       "y": 493,
-      "w": 70,
-      "h": 7,
-      "target_gravity": [0, -1],
-      "color": [0,0,0],
-      "name": "up_pad"
+      "target_gravity": [0, -1]
     },
     {
       "x": 670,
       "y": 50,
-      "w": 70,
-      "h": 7,
-      "target_gravity": [0, 1],
-      "color": [0,0,0],
-      "name": "down_pad"
+      "target_gravity": [0, 1]
+    },
+    {
+      "x": 1493,
+      "y": 930,
+      "target_gravity": [-1, 0]
     }
   ],
   "campfires": [
     {
       "x": 550,
       "y": 470,
-      "side": "left",
-      "name": "fire1"
+      "side": "left"
+    },
+    {
+      "x": 1250,
+      "y": 970,
+      "side": "right"
     }
   ],
   "finish": {
