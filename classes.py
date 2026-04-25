@@ -112,9 +112,19 @@ class Player(pygame.sprite.Sprite):
         self.image = self.base_image.copy()
 
         # Режими керування: для тих, хто звик до стрілочок, і для WASD. (arrows_only, wasd_only, both)
-        self.control_mode = "arrows_only" 
+        self.control_mode = "both" 
 
         self.respawn_pos = (x, y) # Координати останнього сейвпоінту (багаття)
+
+    def switch_skin(self):
+        """Динамічне перемикання скінів по колу через словник presets"""
+        skin_names = list(self.presets.keys())
+        current_idx = skin_names.index(self.current_preset)
+        next_idx = (current_idx + 1) % len(skin_names)
+        
+        self.current_preset = skin_names[next_idx]
+        self.update_color()
+        print(f"Поточний скін: {self.current_preset}")
 
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -184,7 +194,11 @@ class Player(pygame.sprite.Sprite):
     def set_gravity(self, x, y):
         """Міняємо вектор тяжіння та перефарбовуємо гравця."""
         self.gravity_vec = pygame.Vector2(x, y)
-        self.vel = pygame.Vector2(0, 0)
+        limit = 12
+        # Бувай пластикова фізика яка відчувалася як удар об стінку!
+        # self.vel = pygame.Vector2(0, 0)
+        if self.vel.length() > limit:
+            self.vel.scale_to_length(limit)
         self.update_color()
 # apply_physics_with_window - більше не буде, прощавайте старі межі!
     def apply_physics(self, platforms, portals, world_w, world_h):
@@ -295,6 +309,18 @@ class Player(pygame.sprite.Sprite):
         self.rect.topleft = self.respawn_pos
         self.vel = pygame.Vector2(0, 0)
         self.set_gravity(0, 1) # Скидаємо все на заводські налаштування (гравітація вниз)
+
+    def get_gravity_info(self):
+        """Повертає назву напрямку та поточний колір гравця для тексту"""
+        names = {
+            (0, 1): "ВНИЗ",
+            (0,-1): "ВГОРУ",
+            (-1,0): "ВЛІВО",
+            (1, 0): "ВПРАВО"
+        }
+        direction = names.get(tuple(self.gravity_vec), "???")
+        color = self.presets[self.current_preset].get(tuple(self.gravity_vec), (255, 255, 255))
+        return direction, color
 
 class Platform(DebugSprite):
     def __init__(self, x, y, w, h, p_type="norm", obj_id=0):

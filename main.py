@@ -54,6 +54,105 @@ def sync_portals_color(portal_group, player_obj):
         if hasattr(p, 'update_color'):
             p.update_color(player_obj.presets, player_obj.current_preset)
 
+def draw_ui_boxes(screen, player, dev_mode):
+    win_w, win_h = screen.get_size()
+    
+    # Масштабування: базовою висотою вважаємо 600px. 
+    scale = win_h / 600.0 
+    
+    font_size = int(18 * scale)
+    ui_font = font.SysFont("Consolas", font_size, bold=True)
+    
+    margin = int(15 * scale)     # Відступ від краю екрана
+    padding = int(12 * scale)    # Внутрішній відступ у плашці
+    line_h = int(22 * scale)     # Висота рядка тексту
+
+    # --- 1. ПЛАШКА ГРАВЦЯ (ЗВЕРХУ ЛІВОРУЧ) ---
+    gravity_name, p_color = player.get_gravity_info()
+    p_lines = [
+        f"Керування: {player.control_mode}",
+        f"Скін: {player.current_preset}",
+        f"Гравітація: " 
+    ]
+    
+    box1_w = int(260 * scale)
+    box1_h = padding * 1.6 + len(p_lines) * line_h
+    
+    bg1 = Surface((box1_w, box1_h), SRCALPHA)
+    bg1.fill((0, 0, 0, 150)) # Напівпрозоре затінення
+    screen.blit(bg1, (margin, margin))
+    
+    for i, line in enumerate(p_lines):
+        txt = ui_font.render(line, True, (255, 255, 255))
+        screen.blit(txt, (margin + padding, margin + padding + i * line_h))
+    
+    prefix_w = ui_font.size("Гравітація: ")[0]
+    grav_txt = ui_font.render(gravity_name, True, p_color)
+    screen.blit(grav_txt, (margin + padding + prefix_w, margin + padding + 2 * line_h))
+
+    # --- 2. ПЛАШКА РОЗРОБНИКА (ЗНИЗУ ЛІВОРУЧ) ---
+    if dev_mode:
+        dev_lines = [
+            "--- РЕЖИМ РОЗРОБНИКА ---",
+            f"Гравець X:{int(player.rect.x)} Y:{int(player.rect.y)}",
+            f"[1]-Down|[2]-Up|[3]-Left|[4]-Right",
+            f"Spawn: {player.respawn_pos}"
+        ]
+        
+        box2_w = int(365 * scale)
+        box2_h = padding * 1.6 + len(dev_lines) * line_h
+        y_pos = win_h - box2_h - margin
+        
+        bg2 = Surface((box2_w, box2_h), SRCALPHA)
+        bg2.fill((0, 0, 0, 180))
+        screen.blit(bg2, (margin, y_pos))
+        
+        for i, line in enumerate(dev_lines):
+            # Головний заголовок жовтий, координати — салатові, кнопки — білі
+            t_color = (255, 255, 0) if i == 0 else (150, 255, 150) if i == 1 else (255, 255, 255)
+            txt = ui_font.render(line, True, t_color)
+            screen.blit(txt, (margin + padding, y_pos + padding + i * line_h))
+
+    # --- 3. ПЛАШКА ІНСТРУКЦІЇ (ЗВЕРХУ ПРАВОРУЧ) ---
+    keys = key.get_pressed()
+    if keys[K_LCTRL] or keys[K_RCTRL]:
+        current_mode = player.control_mode.lower()
+        
+        if "wasd" in current_mode and "arrows" in current_mode:
+            mode_display = "Обидва  "
+        elif "wasd" in current_mode:
+            mode_display = "WASD    "
+        elif "arrows" in current_mode:
+            mode_display = "Стрілки "
+        else:
+            mode_display = "Обидва  " # Резервний варіант
+            
+        help_lines = [
+            "  КЕРУВАННЯ  ",
+            "-------------",
+            f"{mode_display} - Рух",
+            "TAB      - Скін",
+            "\F,L,\ M - Пресет",
+            " \SHIFT\ - Зависання",
+            #"G        - Діяти",
+            "F11      - Весь екран",
+            "ESCAPE   - Розробник",
+            "CTRL     - Сховати"
+        ]
+        
+        box3_w = int(240 * scale) 
+        box3_h = padding * 1.6 + len(help_lines) * line_h
+        x_pos_help = win_w - box3_w - margin
+        
+        bg3 = Surface((box3_w, box3_h), SRCALPHA)
+        bg3.fill((0, 0, 50, 200))
+        screen.blit(bg3, (x_pos_help, margin))
+        
+        for i, line in enumerate(help_lines):
+            t_c = (100, 200, 255) if i < 2 else (255, 255, 255)
+            txt = ui_font.render(line, True, t_c)
+            screen.blit(txt, (x_pos_help + padding, margin + padding + i * line_h))
+
 # Створюємо головного героя. Координати 400, 100 — це десь посередині зверху.
 player = Player(400, 100)
 camera = Camera(800, 600)
@@ -87,10 +186,19 @@ while run:
             # Поки гравець не виграв він може рухатись (дуже дивно звучить правда?)
             if not game_won:
 
-                if e.key == K_1: player.set_gravity(0, 1)   # Вниз
-                if e.key == K_2: player.set_gravity(0, -1)  # Вгору
-                if e.key == K_3: player.set_gravity(-1, 0)  # Вліво
-                if e.key == K_4: player.set_gravity(1, 0)   # Вправо
+                if dev_mode:
+                    if e.key == K_1:
+                        player.gravity_vec = Vector2(0, 1)   # Вниз
+                    elif e.key == K_2:
+                        player.gravity_vec = Vector2(0,-1)  # Вгору
+                    elif e.key == K_3:
+                        player.gravity_vec = Vector2(-1,0)  # Вліво
+                    elif e.key == K_4:
+                        player.gravity_vec = Vector2(1, 0)   # Вправо
+                    
+                    player.update_color()
+                    sync_portals_color(portals, player)
+
                 if e.key == K_r:  # КНОПКА СМЕРТІ. Якщо застряг або просто набридло жити.
                     player.respawn()
 
@@ -104,8 +212,7 @@ while run:
 
                 # TAB — це скіни гравця. Швидка зміна кольорової палітри (Classic <-> Cyber).
                 if e.key == K_TAB:
-                    player.current_preset = "random" if player.current_preset == "classic" else "classic"
-                    player.update_color()
+                    player.switch_skin()
                     sync_portals_color(portals, player)
 
             if e.key == K_g and not game_won:
@@ -169,6 +276,8 @@ while run:
         screen_rect = window.get_rect()
         txt_rect = victory_text.get_rect(center=screen_rect.center)
         window.blit(victory_text, txt_rect)
+
+    draw_ui_boxes(window, player, dev_mode)
 
     # Оновлення кадру
     display.update()
