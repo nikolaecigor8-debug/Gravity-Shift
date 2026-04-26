@@ -16,6 +16,8 @@ width_window, height_window = 1500, 1000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, "objects.json")
 
+#----------------------DEF для роботи основи данних---------------------#
+
 def load_game_world(filename):
     with open(filename, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -132,7 +134,7 @@ def draw_ui_boxes(screen, player, dev_mode):
             "-------------",
             f"{mode_display} - Рух",
             "TAB      - Скін",
-            "\F,L,\ M - Пресет",
+            "\F, L\ M - Пресет",
             " \SHIFT\ - Зависання",
             #"G        - Діяти",
             "F11      - Весь екран",
@@ -153,12 +155,31 @@ def draw_ui_boxes(screen, player, dev_mode):
             txt = ui_font.render(line, True, t_c)
             screen.blit(txt, (x_pos_help + padding, margin + padding + i * line_h))
 
+def draw_end_screen(screen, title, subtitle, color):
+    win_w, win_h = screen.get_size()
+    
+    # 1. Напівпрозорий фон (Overlay)
+    overlay = Surface((win_w, win_h), SRCALPHA)
+    # color[0], color[1], color[2] — це RGB, 180 — це прозорість
+    overlay.fill((color[0], color[1], color[2], 180)) 
+    screen.blit(overlay, (0, 0))
+
+    # 2. Тексти
+    font_big = font.SysFont("Arial", 60, bold=True)
+    font_small = font.SysFont("Arial", 25)
+
+    title_surf = font_big.render(title, True, (255, 255, 255))
+    sub_surf = font_small.render(subtitle, True, (250, 250, 250))
+
+    # 3. Центрування
+    screen.blit(title_surf, (win_w // 2 - title_surf.get_width() // 2, win_h // 2 - 50))
+    screen.blit(sub_surf, (win_w // 2 - sub_surf.get_width() // 2, win_h // 2 + 30))
+
+#-----------------------------------------------------------------------#
+
 # Створюємо головного героя. Координати 400, 100 — це десь посередині зверху.
 player = Player(400, 100)
 camera = Camera(800, 600)
-
-victory_font = font.SysFont("Verdana", 72, bold=True)
-victory_text = victory_font.render("ПЕРЕМОГА!", True, (0, 255, 100))
 
 platforms, portals, campfires, finish_obj = load_game_world(FILE_PATH)
 sync_portals_color(portals, player)
@@ -174,6 +195,7 @@ all_debug_objects = list(platforms) + list(portals) + list(campfires)
 
 dev_mode = False
 game_won = False
+game_over = False
 run = True
 while run:
     # --- ОБРОБКА ПОДІЙ ---
@@ -230,6 +252,12 @@ while run:
                 else:
                     window = display.set_mode((0, 0), FULLSCREEN)
 
+    if game_over:
+        keys = key.get_pressed()
+        if keys[K_r]:
+            player.respawn()
+            game_over = False
+
     # --- ЛОГІКА ВЗАЄМОДІЇ ---
     for fire in campfires:
         if fire.rect.colliderect(player.rect):
@@ -244,9 +272,11 @@ while run:
 
 
     # Послідовність важлива: спочатку ввід, потім фізика, потім візуал.
-    if not game_won:
+    if not game_won and not game_over:
         player.handle_input()
         player.apply_physics(platforms, portals, width_window, height_window)
+        if player.is_dead:   ###-
+            game_over = True ###-
         player.update_visuals()
         finish_obj.check_interaction(player.rect)
         camera.update(player)
@@ -255,6 +285,7 @@ while run:
     # --- МАЛЮВАННЯ ---
     window.fill((30, 30, 30))
     camera_offset = camera.camera.topleft
+
 
     # Малюємо тонку білу лінію по периметру всього світу
     world_border = Rect(x_window, y_window, width_window, height_window).move(camera_offset)
@@ -269,15 +300,19 @@ while run:
     player.draw(window, camera_offset)
 
     if dev_mode:
+        draw.rect(window, (255, 255, 255), camera.dead_zone, 1)
         for obj in all_debug_objects:
             obj.draw_debug(window, True, camera_offset)
 
-    if game_won:
-        screen_rect = window.get_rect()
-        txt_rect = victory_text.get_rect(center=screen_rect.center)
-        window.blit(victory_text, txt_rect)
+    if game_over:
+        draw_end_screen(window, "ГРА ЗАКІНЧЕНА", "Тисни R, щоб спробувати ще раз", (100, 0, 0))
+    elif game_won:
+        draw_end_screen(window, "ПЕРЕМОГА!", "Ти справжній LOGIK!", (0, 100, 0))
 
     draw_ui_boxes(window, player, dev_mode)
+
+    # БАГ ФКІКС: Стара логіка предбачала що при дії стрибка анульовувати величинни вправо вліво, що призводило наче до запинання гравця (-паркур)
+    #print(f"{player.vel.x:.2f}")
 
     # Оновлення кадру
     display.update()

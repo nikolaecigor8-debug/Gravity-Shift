@@ -75,7 +75,9 @@ class Player(pygame.sprite.Sprite):
         # --- ФІЗИКА ---
         self.vel = pygame.Vector2(0, 0)
         self.on_ground = False # Прапорець-рятівник: без нього ми б могли стрибати прямо в повітрі (хоча це була б фіча як в Flappy Bird, а не баг).
-        
+        self.is_on_ice = False
+        self.is_dead = False
+
         # --- ГРАФІКА (Fast Fall) ---
         self.is_fast_falling = False
         self.base_image = pygame.Surface((self.size, self.size))
@@ -142,6 +144,9 @@ class Player(pygame.sprite.Sprite):
             move_left, move_right = keys[pygame.K_a], keys[pygame.K_d]
             move_up, move_down    = keys[pygame.K_w], keys[pygame.K_s]
 
+        current_friction = 0.95 if self.is_on_ice else self.friction
+        
+
         # 1. РУХ (перпендикулярно гравітації) з інерцією
         if self.gravity_vec.y != 0:
             # Рух по X (якщо гравітація вертикальна)
@@ -150,7 +155,7 @@ class Player(pygame.sprite.Sprite):
             elif move_right:
                 self.vel.x += self.acceleration
             else:
-                self.vel.x *= self.friction # Плавна зупинка
+                self.vel.x *= current_friction # Плавна зупинка
             
             # Обмежуємо максимальну швидкість ходьби
             if abs(self.vel.x) > self.speed:
@@ -177,9 +182,18 @@ class Player(pygame.sprite.Sprite):
         elif self.gravity_vec == (1, 0): jump_press, fall_press = move_left,  move_right
         elif self.gravity_vec == (-1,0): jump_press, fall_press = move_right, move_left
 
-        # Стрибаємо тільки якщо під ногами відчуваємо тверду платформу
+        # Стрибаємо, зберігаючи інерцію по іншій осі
         if jump_press and self.on_ground:
-            self.vel = -self.gravity_vec * self.jump_power
+            # Визначаємо силу стрибка як вектор
+            jump_velocity = -self.gravity_vec * self.jump_power
+            
+            # Якщо гравітація вертикальна (y), міняємо тільки vel.y
+            if self.gravity_vec.y != 0:
+                self.vel.y = jump_velocity.y
+            # Якщо гравітація горизонтальна (x), міняємо тільки vel.x
+            else:
+                self.vel.x = jump_velocity.x
+                
             self.on_ground = False
 
         self.is_fast_falling = fall_press
@@ -204,6 +218,7 @@ class Player(pygame.sprite.Sprite):
     def apply_physics(self, platforms, portals, world_w, world_h):
             """Ядро гри. Розрахунок фізики та колізій у великому світі 10000x10000."""
             self.on_ground = False 
+            self.is_on_ice = False
             
             gravity_step = self.gravity_vec * self.gravity_force
             self.vel += gravity_step
@@ -236,6 +251,10 @@ class Player(pygame.sprite.Sprite):
                 if self.rect.colliderect(wall.rect):
                     if self.vel.x > 0: self.rect.right = wall.rect.left
                     elif self.vel.x < 0: self.rect.left = wall.rect.right
+                    if wall.p_type == "ice":
+                        self.is_on_ice = True
+                    if wall.p_type == "death":
+                        self.is_dead = True
                     if (self.vel.x * self.gravity_vec.x) > 0 or self.gravity_vec.x != 0:
                         self.on_ground = True
                     self.vel.x = 0
@@ -259,6 +278,10 @@ class Player(pygame.sprite.Sprite):
                     hit_dir = 1 if self.vel.y > 0 else -1
                     if hit_dir == 1: self.rect.bottom = wall.rect.top
                     else: self.rect.top = wall.rect.bottom
+                    if wall.p_type == "ice":
+                        self.is_on_ice = True
+                    if wall.p_type == "death":
+                        self.is_dead = True
                     if hit_dir == self.gravity_vec.y:
                         self.on_ground = True
                     self.vel.y = 0
@@ -309,6 +332,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.topleft = self.respawn_pos
         self.vel = pygame.Vector2(0, 0)
         self.set_gravity(0, 1) # Скидаємо все на заводські налаштування (гравітація вниз)
+        self.is_dead = False
 
     def get_gravity_info(self):
         """Повертає назву напрямку та поточний колір гравця для тексту"""
@@ -330,7 +354,11 @@ class Platform(DebugSprite):
         self.image.fill((100, 100, 100))
         # Прикол тест нової необов'язкової опції в словнику якщо це за умовчанням тоді чорний :3
         if self.p_type == "norm":
-            self.image.fill((100, 100, 100))
+            self.image.fill((100, 100, 100)) # Звичайна - сіра
+        elif self.p_type == "ice":
+            self.image.fill((170, 210, 210)) # Крижана - сіро-блакитна
+        elif self.p_type == "death":
+            self.image.fill((120, 0, 0))  # Темно-червоний
         else:
             self.image.fill((0, 0, 0))
             
@@ -487,19 +515,47 @@ class Finish(pygame.sprite.Sprite):
 
 class Camera:
     def __init__(self, width, height):
+        # self.camera зберігає поточний зсув (x, y)
         self.camera = pygame.Rect(0, 0, width, height)
-        self.width = width
-        self.height = height
+        # Розмір мертвої зони (біла рамка на кресленні)
+        self.dead_zone = pygame.Rect(200, 150, 400, 300) 
+        # Плавність підтягування (чим менше, тим повільніше наздоганяє)
+        self.smoothness = 0.1 
 
     def apply(self, entity):
-        # Повертаємо новий прямокутник, зсунутий на координати камери
         return entity.rect.move(self.camera.topleft)
 
     def update(self, target):
         screen = pygame.display.get_surface()
         screen_w, screen_h = screen.get_size()
 
-        x = -target.rect.centerx + (screen_w // 2)
-        y = -target.rect.centery + (screen_h // 2)
+        # 1. Оновлюємо межі мертвої зони (біла рамка на твоєму кресленні)
+        # Вона динамічно підлаштовується під розмір вікна
+        self.dead_zone.width = screen_w * 0.4
+        self.dead_zone.height = screen_h * 0.4
+        self.dead_zone.center = (screen_w // 2, screen_h // 2)
+
+        # 2. Визначаємо, де гравець зараз відносно екрана
+        player_on_screen_x = target.rect.centerx + self.camera.x
+        player_on_screen_y = target.rect.centery + self.camera.y
+
+        # 3. ЛОГІКА МЕРТВОЇ ЗОНИ
+        # Якщо гравець виходить за межі білої рамки, камеру "штовхає" в той бік
+        if player_on_screen_x < self.dead_zone.left:
+            self.camera.x += self.dead_zone.left - player_on_screen_x
+        elif player_on_screen_x > self.dead_zone.right:
+            self.camera.x -= player_on_screen_x - self.dead_zone.right
+
+        if player_on_screen_y < self.dead_zone.top:
+            self.camera.y += self.dead_zone.top - player_on_screen_y
+        elif player_on_screen_y > self.dead_zone.bottom:
+            self.camera.y -= player_on_screen_y - self.dead_zone.bottom
+
+        # 4. ПЛАВНЕ ПІДТЯГУВАННЯ (Lerp)
+        # Коли гравець зупиняється або рухається повільно, камера лагідно центрує його
+        ideal_x = -target.rect.centerx + (screen_w // 2)
+        ideal_y = -target.rect.centery + (screen_h // 2)
         
-        self.camera = pygame.Rect(x, y, screen_w, screen_h)
+        lerp_speed = 0.1 # Чим менше число, тим "лінивіша" камера
+        self.camera.x += (ideal_x - self.camera.x) * lerp_speed
+        self.camera.y += (ideal_y - self.camera.y) * lerp_speed
