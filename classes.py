@@ -20,6 +20,20 @@
 #   Campfires    - це багаття працює як точка збереження, спавнить поруч зправа або зліва залежно від налаштування. Має фіксовані розміри і безобмежену кількість копій. (тоді спавнити тебе буде останні дотичний до тебе) 
 #   finish       - це фінал, великі червонеі двері що просять G для активації, закінчуючи гру і виводячи... Щоб там не було, але виводить..
 
+# "platforms": [{"x": 0, "y": 0, "w": 200, "h": 50, "type": "norm", "ice", "death"}]
+
+# "portals": [{"x": 0, "y": 0, "target_gravity": [0, 0] ( Ліво [-1, 0] або Вправо [1, 0] | Вгору [0, -1] або Вниз [0, 1])}] 
+
+# "jump_pads": [{"x": 0, "y": 3, "target_gravity": [0, 0] ( Ліво [-1, 0] або Вправо [1, 0] | Вгору [0, -1] або Вниз [0, 1])}]
+
+# "campfires": [{"x": 0, "y": 0, "side": "" ("left" або "right" якщо нічого то В багатті)}]
+
+# "finish": {"x": 0, "y": 0, "w": 90, "h": 120    (Розміри можна але не треба налаштовувати)}
+
+# "labels": [{"text": "", "x": 0, "y": 0, "size": 1, "color": [255, 255, 255], "bg_alpha": 120}]
+  
+# ←, →, ↑, ↓.
+
 # https://github.com/nikolaecigor8-debug/Gravity-Shift.git
 
 import pygame
@@ -145,7 +159,6 @@ class Player(pygame.sprite.Sprite):
             move_up, move_down    = keys[pygame.K_w], keys[pygame.K_s]
 
         current_friction = 0.95 if self.is_on_ice else self.friction
-        
 
         # 1. РУХ (перпендикулярно гравітації) з інерцією
         if self.gravity_vec.y != 0:
@@ -351,7 +364,7 @@ class Platform(DebugSprite):
         super().__init__(x, y, w, h, obj_id) # Викликаємо конструктор бази
         self.p_type = p_type
         self.image = pygame.Surface((w, h))
-        self.image.fill((100, 100, 100))
+        self.image.fill((80, 80, 80))
         # Прикол тест нової необов'язкової опції в словнику якщо це за умовчанням тоді чорний :3
         if self.p_type == "norm":
             self.image.fill((100, 100, 100)) # Звичайна - сіра
@@ -371,9 +384,9 @@ class TunnelPortal(DebugSprite):
         # 1. АВТОМАТИЧНЕ ВИЗНАЧЕННЯ РОЗМІРІВ
         if w is None or h is None:
             if target_gravity[0] != 0: # Ліво [-1, 0] або Вправо [1, 0]
-                w, h = 30, 100         #    |Вертикальний   портал|
+                w, h = 40, 120         #    |Вертикальний   портал|
             else:                      # Вгору [0, -1] або Вниз [0, 1]
-                w, h = 100, 30         #    |Горизонтальний портал|
+                w, h = 120, 40         #    |Горизонтальний портал|
 
         super().__init__(x, y, w, h, obj_id)
         # Портал — це тригер, який змінює фізику світу при проходженні крізь нього.
@@ -515,47 +528,80 @@ class Finish(pygame.sprite.Sprite):
 
 class Camera:
     def __init__(self, width, height):
-        # self.camera зберігає поточний зсув (x, y)
         self.camera = pygame.Rect(0, 0, width, height)
-        # Розмір мертвої зони (біла рамка на кресленні)
-        self.dead_zone = pygame.Rect(200, 150, 400, 300) 
-        # Плавність підтягування (чим менше, тим повільніше наздоганяє)
-        self.smoothness = 0.1 
+        self.dead_zone = pygame.Rect(200, 150, 400, 300)
+        self.lerp_speed = 0.075 
+        # НОВЕ: Точка фіксації для презентацій (якщо None — камера стежить за гравцем)
+        self.focus_point = None 
 
     def apply(self, entity):
         return entity.rect.move(self.camera.topleft)
+
+    def set_focus(self, x, y):
+        """Фіксує камеру на конкретних координатах світу"""
+        self.focus_point = (x, y)
+
+    def clear_focus(self):
+        """Повертає камеру в режим стеження за гравцем"""
+        self.focus_point = None
 
     def update(self, target):
         screen = pygame.display.get_surface()
         screen_w, screen_h = screen.get_size()
 
-        # 1. Оновлюємо межі мертвої зони (біла рамка на твоєму кресленні)
-        # Вона динамічно підлаштовується під розмір вікна
-        self.dead_zone.width = screen_w * 0.4
-        self.dead_zone.height = screen_h * 0.4
-        self.dead_zone.center = (screen_w // 2, screen_h // 2)
+        if self.focus_point:
+            # Режим презентації: ціль — твої координати
+            target_center_x, target_center_y = self.focus_point
+        else:
+            # Звичайний режим: ціль — гравець
+            target_center_x, target_center_y = target.rect.centerx, target.rect.centery
 
-        # 2. Визначаємо, де гравець зараз відносно екрана
-        player_on_screen_x = target.rect.centerx + self.camera.x
-        player_on_screen_y = target.rect.centery + self.camera.y
+            player_on_screen_x = target.rect.centerx + self.camera.x
+            player_on_screen_y = target.rect.centery + self.camera.y
 
-        # 3. ЛОГІКА МЕРТВОЇ ЗОНИ
-        # Якщо гравець виходить за межі білої рамки, камеру "штовхає" в той бік
-        if player_on_screen_x < self.dead_zone.left:
-            self.camera.x += self.dead_zone.left - player_on_screen_x
-        elif player_on_screen_x > self.dead_zone.right:
-            self.camera.x -= player_on_screen_x - self.dead_zone.right
+            self.dead_zone.width = screen_w * 0.4
+            self.dead_zone.height = screen_h * 0.4
+            self.dead_zone.center = (screen_w // 2, screen_h // 2)
 
-        if player_on_screen_y < self.dead_zone.top:
-            self.camera.y += self.dead_zone.top - player_on_screen_y
-        elif player_on_screen_y > self.dead_zone.bottom:
-            self.camera.y -= player_on_screen_y - self.dead_zone.bottom
+            if player_on_screen_x < self.dead_zone.left:
+                self.camera.x += self.dead_zone.left - player_on_screen_x
+            elif player_on_screen_x > self.dead_zone.right:
+                self.camera.x -= player_on_screen_x - self.dead_zone.right
 
-        # 4. ПЛАВНЕ ПІДТЯГУВАННЯ (Lerp)
-        # Коли гравець зупиняється або рухається повільно, камера лагідно центрує його
-        ideal_x = -target.rect.centerx + (screen_w // 2)
-        ideal_y = -target.rect.centery + (screen_h // 2)
+            if player_on_screen_y < self.dead_zone.top:
+                self.camera.y += self.dead_zone.top - player_on_screen_y
+            elif player_on_screen_y > self.dead_zone.bottom:
+                self.camera.y -= player_on_screen_y - self.dead_zone.bottom
+
+        ideal_x = -target_center_x + (screen_w // 2)
+        ideal_y = -target_center_y + (screen_h // 2)
         
-        lerp_speed = 0.1 # Чим менше число, тим "лінивіша" камера
-        self.camera.x += (ideal_x - self.camera.x) * lerp_speed
-        self.camera.y += (ideal_y - self.camera.y) * lerp_speed
+        self.camera.x += (ideal_x - self.camera.x) * self.lerp_speed
+        self.camera.y += (ideal_y - self.camera.y) * self.lerp_speed
+
+class WorldLabel(DebugSprite):
+    def __init__(self, text, x, y, size=20, color=(255, 255, 255), bg_alpha=0, obj_id=0):
+        self.font_label = pygame.font.SysFont("Consolas", size, bold=True)
+        self.text_surf = self.font_label.render(text, True, color)
+        
+        w, h = self.text_surf.get_size()
+        
+        super().__init__(x, y, w, h, obj_id)
+        
+        self.bg_alpha = bg_alpha
+        if self.bg_alpha > 0:
+            self.bg_surf = pygame.Surface((w + 10, h + 6), pygame.SRCALPHA)
+            self.bg_surf.fill((0, 0, 0, self.bg_alpha))
+        else:
+            self.bg_surf = None
+
+    def draw(self, screen, camera_offset, dev_mode=False):
+        draw_pos = self.rect.move(camera_offset)
+        # Малюємо фон (якщо є)
+        if self.bg_surf:
+            screen.blit(self.bg_surf, (draw_pos.x - 5, draw_pos.y - 3))
+        # Малюємо сам текст
+        screen.blit(self.text_surf, draw_pos)
+        # Викликаємо стандартний дебаг (рамка + ID), який ти вже написав
+        self.draw_debug(screen, dev_mode, camera_offset)
+
