@@ -2,7 +2,7 @@ from pygame import *
 from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel
 import os
 import json
-# cd "Gravy Shift" (Якщо видає помилко по типу: "Я не бачу той json у твоїй тонній папці де лежить гра". Написати в консоль)
+# cd "Gravy Shift" 
 
 # --- ІНІЦІАЛІЗАЦІЯ ---
 init()
@@ -16,10 +16,17 @@ width_window, height_window = 10000, 5000
 # camera_target_# = c_t_#
 c_t_x, c_t_y = 440, 4440
 
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, "objects.json")
 
 #----------------------DEF для роботи основи данних---------------------#
+
+def is_on_screen(rect, camera_x, camera_y, display_w, display_h):
+    return rect.x + camera_x + rect.width > 0 and \
+           rect.x + camera_x < display_w and \
+           rect.y + camera_y + rect.height > 0 and \
+           rect.y + camera_y < display_h
 
 def load_game_world(filename):
     with open(filename, 'r', encoding='utf-8') as f:
@@ -29,25 +36,20 @@ def load_game_world(filename):
     portals = sprite.Group()
     campfires = sprite.Group()
 
-    # Нумеруємо платформи. | Нотатка ідеї, norm умова платформи що на ню просто можна втаритися або спертися. 
-    # Якщо змінити і уточнити це в json можна створити об'єкт вбивцю чи слизьку поверхню (friction збільшити)
+    # Нотатка ідеї, norm умова платформи що на ню просто можна вдаритися або спертися.
     for i, p in enumerate(data.get("platforms", [])):
         p_type = p.get("type", "norm")
         platforms.add(Platform(p["x"], p["y"], p["w"], p["h"], p_type, obj_id=i))
 
-    # Нумеруємо портали (продовжуємо або окрема нумерація)
     for i, p in enumerate(data.get("portals", [])):
         portals.add(TunnelPortal(p["x"], p["y"], p["target_gravity"], w=p.get("w"), h=p.get("h"), obj_id=i))
 
-    # Нумеруємо пад-стрибуни
     for i, j in enumerate(data.get("jump_pads", [])):
         portals.add(JumpPad(j["x"], j["y"], j["target_gravity"], w=j.get("w"), h=j.get("h"), obj_id=i))
 
-    # Нумеруємо багаття
     for i, c in enumerate(data.get("campfires", [])):
         campfires.add(Campfire(c["x"], c["y"], side=c.get("side", "center"), obj_id=i))
 
-    # Фініш залишаємо без ID (як ти і хотів)
     f_data = data.get("finish")
     finish = Finish(f_data["x"], f_data["y"], f_data.get("w", 90), f_data.get("h", 120)) if f_data else None
 
@@ -61,7 +63,6 @@ def auto_index_json(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Категорії, які мають поле "nomer"
     categories = ['platforms', 'portals', 'jump_pads', 'campfires', 'labels']
 
     for category in categories:
@@ -100,18 +101,17 @@ def sync_portals_color(portal_group, player_obj):
         if hasattr(p, 'update_color'):
             p.update_color(player_obj.presets, player_obj.current_preset)
 
-def draw_ui_boxes(screen, player, dev_mode, camera_offset): # Додали camera_offset
+def draw_ui_boxes(screen, player, dev_mode, camera_offset):
     win_w, win_h = screen.get_size()
     
-    # Масштабування: базовою висотою вважаємо 600px. 
     scale = win_h / 600.0 
     
     font_size = int(18 * scale)
     ui_font = font.SysFont("Consolas", font_size, bold=True)
     
-    margin = int(15 * scale)     # Відступ від краю екрана
+    margin  = int(15 * scale)    # Відступ від краю екрана
     padding = int(12 * scale)    # Внутрішній відступ у плашці
-    line_h = int(22 * scale)     # Висота рядка тексту
+    line_h  = int(22 * scale)    # Висота рядка тексту
 
     # --- 1. ПЛАШКА ГРАВЦЯ (ЗВЕРХУ ЛІВОРУЧ) ---
     gravity_name, p_color = player.get_gravity_info()
@@ -142,7 +142,6 @@ def draw_ui_boxes(screen, player, dev_mode, camera_offset): # Додали camer
         world_m_x = m_pos[0] - camera_offset[0]
         world_m_y = m_pos[1] - camera_offset[1]
 
-        # Визначаємо текст фокусу камери (використовуємо твою назву c_t_x, c_t_y)
         if camera.focus_point:
             focus_status = f"({int(camera.focus_point[0])}, {int(camera.focus_point[1])})"
         else:
@@ -166,9 +165,8 @@ def draw_ui_boxes(screen, player, dev_mode, camera_offset): # Додали camer
         screen.blit(bg2, (margin, y_pos))
         
         for i, line in enumerate(dev_lines):
-            # Додаємо кольори: фокус камери зробимо, наприклад, золотистим
-            if i == 0: t_color = (255, 255, 0)      # Заголовок
-            elif i == 3: t_color = (255, 215, 0)    # Фокус камери (Gold)
+            if   i == 0: t_color = (255, 255, 0)    # Заголовок
+            elif i == 3: t_color = (255, 215, 0)    # Фокус камери
             elif i == 2: t_color = (100, 200, 255)  # Миша
             elif i == 1: t_color = (150, 255, 150)  # Гравець
             else: t_color = (255, 255, 255)         # Все інше
@@ -188,7 +186,7 @@ def draw_ui_boxes(screen, player, dev_mode, camera_offset): # Додали camer
         elif "arrows" in current_mode:
             mode_display = "Стрілки "
         else:
-            mode_display = "Обидва  " # Резервний варіант
+            mode_display = "Обидва  "
             
         help_lines = [
             "  КЕРУВАННЯ  ",
@@ -222,20 +220,17 @@ def draw_ui_boxes(screen, player, dev_mode, camera_offset): # Додали camer
 def draw_end_screen(screen, title, subtitle, color):
     win_w, win_h = screen.get_size()
     
-    # 1. Напівпрозорий фон (Overlay)
     overlay = Surface((win_w, win_h), SRCALPHA)
-    # color[0], color[1], color[2] — це RGB, 180 — це прозорість
+    # color[0], color[1], color[2] — це RGB, після — прозорість
     overlay.fill((color[0], color[1], color[2], 180)) 
     screen.blit(overlay, (0, 0))
 
-    # 2. Тексти
     font_big = font.SysFont("Arial", 60, bold=True)
     font_small = font.SysFont("Arial", 25)
 
     title_surf = font_big.render(title, True, (255, 255, 255))
     sub_surf = font_small.render(subtitle, True, (250, 250, 250))
 
-    # 3. Центрування
     screen.blit(title_surf, (win_w // 2 - title_surf.get_width() // 2, win_h // 2 - 50))
     screen.blit(sub_surf, (win_w // 2 - sub_surf.get_width() // 2, win_h // 2 + 30))
 
@@ -270,7 +265,7 @@ while run:
         if e.type == QUIT: 
             run = False
         
-        # Чит-коди для розробника: міняємо нравітацію натисканням цифр.
+        # Чит-коди для розробника: зміна гравітації натисканням цифр.
         if e.type == KEYDOWN:
             # Поки гравець не виграв він може рухатись (дуже дивно звучить правда?)
             if not game_won:
@@ -288,9 +283,9 @@ while run:
                     if e.key == K_p:
                         camera_target = not camera_target
                         if camera_target: 
-                            camera.set_focus(c_t_x, c_t_y) 
+                            camera.focus_point = (c_t_x, c_t_y) 
                         else:
-                            camera.clear_focus()
+                            camera.focus_point = None
                     
                     player.update_color()
                     sync_portals_color(portals, player)
@@ -298,7 +293,7 @@ while run:
                 if e.key == K_r:  # КНОПКА СМЕРТІ. Якщо застряг або просто набридло жити.
                     player.respawn()
 
-                # Механіка Streetfly. Має ліміт — спалах є, інерція зникає.
+                # Механіка Streetfly. Має ліміт — спалах є, інерція відмінняється.
                 if e.key == K_LSHIFT or e.key == K_RSHIFT or e.key == K_f or e.key == K_l: 
                     player.apply_streetfly()
 
@@ -306,21 +301,20 @@ while run:
                 if e.key == K_m:
                     player.switch_control_mode()
 
-                # TAB — це скіни гравця. Швидка зміна кольорової палітри (Classic <-> Cyber).
+                # TAB — це скіни гравця. Швидка зміна кольорової палітри.
                 if e.key == K_TAB:
                     player.switch_skin()
                     sync_portals_color(portals, player)
 
             if e.key == K_g and not game_won:
                 if finish_obj.check_interaction(player.rect):
-                    game_won = True # ЧАС ЗУПИНЕНО
+                    game_won = True
 
             if e.key == K_ESCAPE:
                 dev_mode = not dev_mode
                 print(f"Режим розробника: {dev_mode}")
 
-            if e.key == K_F11:
-                # Перемикання між віконним та повним екраном
+            if e.key == K_F11: 
                 if window.get_flags() & FULLSCREEN:
                     window = display.set_mode((800, 600), RESIZABLE)
                 else:
@@ -378,17 +372,14 @@ while run:
     # --- ЛОГІКА ВЗАЄМОДІЇ ---
     for fire in campfires:
         if fire.rect.colliderect(player.rect):
-            # Кожного разу, коли проходимо крізь багаття, оновлюємо точку респавну.
             player.respawn_pos = (fire.spawn_x, fire.spawn_y)
     
     # --- КРИТИЧНИЙ БАГО-ФІКС (Друга межа респавну) ---
-    # Якщо гравець подолав фізичну стіну (10000) і вилетів на +5 пікселів далі — респавн.
     if (player.rect.right > width_window + 5 or player.rect.left < -5 or 
         player.rect.bottom > height_window + 5 or player.rect.top < -5):
         player.respawn()
 
 
-    # Послідовність важлива: спочатку ввід, потім фізика, потім візуал.
     if not game_won and not game_over:
         player.handle_input()
         player.apply_physics(platforms, portals, width_window, height_window)
@@ -397,6 +388,9 @@ while run:
         player.update_visuals()
         finish_obj.check_interaction(player.rect)
         camera.update(player)
+        win_w, win_h = window.get_size()
+
+        view_rect = Rect(-camera.camera.x, -camera.camera.y, win_w, win_h)
 
         if camera.focus_point:
             camera.update(None)
@@ -407,15 +401,15 @@ while run:
     window.fill((30, 30, 30))
     camera_offset = camera.camera.topleft
 
-
-    # Малюємо тонку білу лінію по периметру всього світу
+    # Тонка біла лінія по периметру всього світу
     world_border = Rect(x_window, y_window, width_window, height_window).move(camera_offset)
     draw.rect(window, (255, 255, 255), world_border, 1)
 
 
     for obj in all_debug_objects:
-        obj.is_hovered = obj.rect.inflate(4, 4).colliderect(player.rect)
-        obj.draw(window, camera_offset, dev_mode=False)
+        if obj.rect.colliderect(view_rect):
+            obj.is_hovered = obj.rect.inflate(4, 4).colliderect(player.rect)
+            obj.draw(window, camera_offset, dev_mode=False)
 
     for lbl in labels:
         lbl.draw(window, camera_offset)
@@ -440,7 +434,6 @@ while run:
         
         current_rect_data = {"x": int(rect_x), "y": int(rect_y), "w": int(rect_w), "h": int(rect_h)}
 
-        # ПЕРЕТВОРЮЄМО У КООРДИНАТИ ЕКРАНА (щоб ми бачили це на моніторі)
         screen_x = rect_x + camera_offset[0]
         screen_y = rect_y + camera_offset[1]
         
@@ -464,7 +457,7 @@ while run:
         draw.circle(window, (0, 150, 255), click_circle_pos, 20, 3)
         draw.circle(window, (0, 200, 255), click_circle_pos, 5)
         
-        click_circle_timer -= 1 # Зменшуємо таймер кожен кадр
+        click_circle_timer -= 1
 
     if game_over:
         draw_end_screen(window, "ГРА ЗАКІНЧЕНА", "Тисни R, щоб спробувати ще раз", (100, 0, 0))
@@ -476,8 +469,7 @@ while run:
     # БАГ ФКІКС: Стара логіка предбачала що при дії стрибка анульовувати величинни вправо вліво, що призводило наче до запинання гравця (-паркур)
     #print(f"{player.vel.x:.2f}")
 
-    # Оновлення кадру
     display.update()
-    clk.tick(60) # Тримаємо стабільні 60 FPS. Більше людське око (в цій грі) не побачить.
+    clk.tick(60)
 
 quit()

@@ -1,41 +1,3 @@
-# Привіт це мій гайд-записник який має намір допомогти розумітися і моїй ідеї цієї гри <3
-# Основні параметри світу:
-#   Розмір вікна: 800x600 пікселів.
-#   Розмір гравця: 50x50 пікселів.
-#   Координати: (0, 0) — лівий верхній кут. X зростає вправо, Y — вниз.
-#
-# Ігрові поняття:
-#   Vector2 — Найголовніша фішка гри, вона має лише (0, 0)/(x, y) але це допомагає пк легко розуміти як прораховувати всі рухи по координатам.
-#       Це дає грі міняти розуміння прощин для гравця, буквально перевертати гравітацію.    (   [0, 1]-Вниз,  [0, -1]-Вгору, [-1, 0]-Вліво, [1, 0]-Вправо   )
-#       На цьому і побудована сама гра, міняти гравітацію щоб долати паркур і дійти до мети ВЕЛИКИХ червоних дверей. (поки це лише прямокутник але буде абстрактними)
-#   Словник json — там ти знайдеш всі об'єкти моли дуже зручно там зберігаються і легко редагуються і всіх сенсах. Для цього я навіть додав dev_mode який вмикаєтсья на K_ESCAPE.
-#       Цей мод відображає активність обєктів рамкою і також показує номер у словнику де він зберігається (зверни увагу що номер починається з 0-го і починається після назви об'єкта, цей номер і є всі характеристики)
-#   Streetfly — Напевняк ви помітили в класі гравця Def apply_streetfly: Це прямо і буквально повторення гравітації Vector2 для того щоб анулити прискорення падіння. Це і дає тобі пролеціти довше.
-# 
-#  Об'єкти:
-#   Player       - це гравець, зазвичай куб але він теж здатний редагуватися.
-#   Platforms    - це чотирикутники які дають змогу гравцю стояти стрибати та впиратися на щось окрам вікна.
-#   TunnelPortal - це двочастинові фігури (у грі це не помітно), розділені на дві тонші частини щоб при дотику на дві змінити гравітацію гравеві.
-#   JumpPad      - також портал але діють негайно і задумані для лежання на площинах.
-#   Campfires    - це багаття працює як точка збереження, спавнить поруч зправа або зліва залежно від налаштування. Має фіксовані розміри і безобмежену кількість копій. (тоді спавнити тебе буде останні дотичний до тебе) 
-#   finish       - це фінал, великі червонеі двері що просять G для активації, закінчуючи гру і виводячи... Щоб там не було, але виводить..
-
-# "platforms": [{"x": 0, "y": 0, "w": 200, "h": 50, "type": "norm", "ice", "death"}]
-
-# "portals": [{"x": 0, "y": 0, "target_gravity": [0, 0] ( Ліво [-1, 0] або Вправо [1, 0] | Вгору [0, -1] або Вниз [0, 1])}] 
-
-# "jump_pads": [{"x": 0, "y": 3, "target_gravity": [0, 0] ( Ліво [-1, 0] або Вправо [1, 0] | Вгору [0, -1] або Вниз [0, 1])}]
-
-# "campfires": [{"x": 0, "y": 0, "side": "" ("left" або "right" якщо нічого то В багатті)}]
-
-# "finish": {"x": 0, "y": 0, "w": 90, "h": 120    (Розміри можна але не треба налаштовувати)}
-
-# "labels": [{"text": "", "x": 0, "y": 0, "size": 1, "color": [255, 255, 255], "bg_alpha": 120}]
-  
-# ←, →, ↑, ↓.
-
-# https://github.com/nikolaecigor8-debug/Gravity-Shift.git
-
 import pygame
 import random
 
@@ -46,6 +8,7 @@ class DebugSprite(pygame.sprite.Sprite):
         self.obj_id = obj_id
         self.is_hovered = False
         self.font = pygame.font.SysFont("Consolas", 16, bold=True)
+
 
     def draw_debug(self, screen, dev_mode, camera_offset):
         if dev_mode:
@@ -67,6 +30,7 @@ class DebugSprite(pygame.sprite.Sprite):
             bg_rect = bg_surface.get_rect(center=draw_rect.center) 
             screen.blit(bg_surface, bg_rect)
 
+
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
@@ -76,9 +40,9 @@ class Player(pygame.sprite.Sprite):
         self.rect = pygame.Rect(x, y, self.size, self.size) 
         
         # --- ХАРАКТЕРИСТИКИ ---
-        self.speed         = 7    # Швидкість бігу.        Не занадто повільно, щоб не нудити, не занадто швидко, щоб не "прошивати" стіни.
-        self.jump_power    = 15   # Потужність поштовху.   Дозволяє перелітати середні прірви.
-        self.gravity_force = 0.7  # Константа прискорення. Чим більше — тим важчим здається кубик.
+        self.speed         = 7    # Швидкість бігу.
+        self.jump_power    = 15   # Потужність поштовху.
+        self.gravity_force = 0.7  # Константа прискорення.
         self.acceleration  = 1.0  # Як швидко ми розганяємося
         self.friction      = 0.4  # Як швидко ми зупиняємося (тертя)
         
@@ -88,7 +52,7 @@ class Player(pygame.sprite.Sprite):
         
         # --- ФІЗИКА ---
         self.vel = pygame.Vector2(0, 0)
-        self.on_ground = False # Прапорець-рятівник: без нього ми б могли стрибати прямо в повітрі (хоча це була б фіча як в Flappy Bird, а не баг).
+        self.on_ground = False
         self.is_on_ice = False
         self.is_dead = False
 
@@ -130,7 +94,8 @@ class Player(pygame.sprite.Sprite):
         # Режими керування: для тих, хто звик до стрілочок, і для WASD. (arrows_only, wasd_only, both)
         self.control_mode = "both" 
 
-        self.respawn_pos = (x, y) # Координати останнього сейвпоінту (багаття)
+        self.respawn_pos = (x, y) # Координати останнього сейвпоінту
+
 
     def switch_skin(self):
         """Динамічне перемикання скінів по колу через словник presets"""
@@ -142,10 +107,10 @@ class Player(pygame.sprite.Sprite):
         self.update_color()
         print(f"Поточний скін: {self.current_preset}")
 
+
     def handle_input(self):
         keys = pygame.key.get_pressed()
-        
-        # Гнучка система: вибираємо кнопки залежно від налаштувань режиму
+
         if self.control_mode == "both":
             move_left  = keys[pygame.K_LEFT]  or keys[pygame.K_a]
             move_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
@@ -168,9 +133,8 @@ class Player(pygame.sprite.Sprite):
             elif move_right:
                 self.vel.x += self.acceleration
             else:
-                self.vel.x *= current_friction # Плавна зупинка
+                self.vel.x *= current_friction
             
-            # Обмежуємо максимальну швидкість ходьби
             if abs(self.vel.x) > self.speed:
                 self.vel.x = self.speed if self.vel.x > 0 else -self.speed
         else:
@@ -180,9 +144,8 @@ class Player(pygame.sprite.Sprite):
             elif move_down:
                 self.vel.y += self.acceleration
             else:
-                self.vel.y *= self.friction # Плавна зупинка
+                self.vel.y *= self.friction
             
-            # Обмежуємо максимальну швидкість ходьби
             if abs(self.vel.y) > self.speed:
                 self.vel.y = self.speed if self.vel.y > 0 else -self.speed
 
@@ -195,21 +158,17 @@ class Player(pygame.sprite.Sprite):
         elif self.gravity_vec == (1, 0): jump_press, fall_press = move_left,  move_right
         elif self.gravity_vec == (-1,0): jump_press, fall_press = move_right, move_left
 
-        # Стрибаємо, зберігаючи інерцію по іншій осі
         if jump_press and self.on_ground:
-            # Визначаємо силу стрибка як вектор
             jump_velocity = -self.gravity_vec * self.jump_power
             
-            # Якщо гравітація вертикальна (y), міняємо тільки vel.y
             if self.gravity_vec.y != 0:
                 self.vel.y = jump_velocity.y
-            # Якщо гравітація горизонтальна (x), міняємо тільки vel.x
             else:
                 self.vel.x = jump_velocity.x
                 
             self.on_ground = False
-
         self.is_fast_falling = fall_press
+
 
     def switch_control_mode(self):
         """Циклічне перемикання між режимами керування. Для тих, хто не може визначитися."""
@@ -217,6 +176,7 @@ class Player(pygame.sprite.Sprite):
         current_idx = modes.index(self.control_mode)
         self.control_mode = modes[(current_idx + 1) % len(modes)]
         print(f"Поточний режим керування: {self.control_mode}")
+
 
     def set_gravity(self, x, y):
         """Міняємо вектор тяжіння та перефарбовуємо гравця."""
@@ -227,6 +187,7 @@ class Player(pygame.sprite.Sprite):
         if self.vel.length() > limit:
             self.vel.scale_to_length(limit)
         self.update_color()
+
 # apply_physics_with_window - більше не буде, прощавайте старі межі!
     def apply_physics(self, platforms, portals, world_w, world_h):
             """Ядро гри. Розрахунок фізики та колізій у великому світі 10000x10000."""
@@ -237,6 +198,8 @@ class Player(pygame.sprite.Sprite):
             self.vel += gravity_step
 
             current_max_speed = 50
+            nearby_rect = self.rect.inflate(9000, 600)
+            active_platforms = [p for p in platforms if p.rect.colliderect(nearby_rect)]
 
             # Гравітація та Fast Fall
             if self.is_fast_falling:
@@ -259,8 +222,8 @@ class Player(pygame.sprite.Sprite):
                 self.vel.x = 0
                 if self.gravity_vec.x == 1: self.on_ground = True
 
-            # Колізії з платформами по X (залишаємо без змін)
-            for wall in platforms:
+            # Колізії з платформами по X
+            for wall in active_platforms:
                 if self.rect.colliderect(wall.rect):
                     if self.vel.x > 0: self.rect.right = wall.rect.left
                     elif self.vel.x < 0: self.rect.left = wall.rect.right
@@ -285,8 +248,8 @@ class Player(pygame.sprite.Sprite):
                 self.vel.y = 0
                 if self.gravity_vec.y == 1: self.on_ground = True
 
-            # Колізії з платформами по Y (залишаємо без змін)
-            for wall in platforms:
+            # Колізії з платформами по Y
+            for wall in active_platforms:
                 if self.rect.colliderect(wall.rect):
                     hit_dir = 1 if self.vel.y > 0 else -1
                     if hit_dir == 1: self.rect.bottom = wall.rect.top
@@ -299,27 +262,28 @@ class Player(pygame.sprite.Sprite):
                         self.on_ground = True
                     self.vel.y = 0
 
-            # Синхронізація позиції
             self.pos = pygame.Vector2(self.rect.topleft)
 
-            # Перевірка порталів
             for portal in portals:
                 portal.check_collision(self)
+
 
     def draw(self, screen, camera_offset):
         img_rect = self.image.get_rect(center=self.rect.center)
         screen.blit(self.image, img_rect.move(camera_offset))
     
+
     def update_color(self):
         """Беремо колір із вибраного пресета залежно від того, куди нас тягне гравітація."""
         color = self.presets[self.current_preset].get(tuple(self.gravity_vec), (255, 255, 255))
         self.base_image.fill(color)
         self.image = self.base_image.copy()
 
+
     def update_visuals(self):
             """Ефект 'резинки': візуальне задоволення від падіння."""
             if self.is_fast_falling and not self.on_ground:
-                # Розтягуємо кубик по осі падіння і стискаємо по боках
+                # Розтягування кубика по осі падіння
                 stretch, shrink = 1.4, 0.7
                 if self.gravity_vec.y != 0:
                     new_w, new_h = int(self.size * shrink), int(self.size * stretch)
@@ -327,28 +291,30 @@ class Player(pygame.sprite.Sprite):
                     new_w, new_h = int(self.size * stretch), int(self.size * shrink)
                 self.image = pygame.transform.scale(self.base_image, (new_w, new_h))
             else:
-                # Повертаємо форму квадрата, коли ми спокійні або на землі
                 self.image = self.base_image.copy()
 
-            # ЕФЕКТ СТРІТФЛАЙ: короткий білий спалах, щоб гравець відчув "скидання" інерції.
+            # ЕФЕКТ СТРІТФЛАЙ: короткий білий спалах.
             if self.streetfly_flash:
                 self.image.fill((255, 255, 255)) 
                 self.streetfly_flash = False
+
 
     def apply_streetfly(self):
         """Механіка Streetfly: рятувальний круг для обнулення швидкості в польоті."""
         self.vel = pygame.Vector2(0, 0)
         self.streetfly_flash = True 
 
+
     def respawn(self):
         """Повернення додому до багаття, коли рівень виявився сильнішим за тебе."""
         self.rect.topleft = self.respawn_pos
         self.vel = pygame.Vector2(0, 0)
-        self.set_gravity(0, 1) # Скидаємо все на заводські налаштування (гравітація вниз)
+        self.set_gravity(0, 1)
         self.is_dead = False
 
+
     def get_gravity_info(self):
-        """Повертає назву напрямку та поточний колір гравця для тексту"""
+        """Повертає назву напрямку та поточний колір гравця для тексту."""
         names = {
             (0, 1): "ВНИЗ",
             (0,-1): "ВГОРУ",
@@ -359,9 +325,10 @@ class Player(pygame.sprite.Sprite):
         color = self.presets[self.current_preset].get(tuple(self.gravity_vec), (255, 255, 255))
         return direction, color
 
+
 class Platform(DebugSprite):
     def __init__(self, x, y, w, h, p_type="norm", obj_id=0):
-        super().__init__(x, y, w, h, obj_id) # Викликаємо конструктор бази
+        super().__init__(x, y, w, h, obj_id)
         self.p_type = p_type
         self.image = pygame.Surface((w, h))
         self.image.fill((80, 80, 80))
@@ -371,17 +338,18 @@ class Platform(DebugSprite):
         elif self.p_type == "ice":
             self.image.fill((170, 210, 210)) # Крижана - сіро-блакитна
         elif self.p_type == "death":
-            self.image.fill((120, 0, 0))  # Темно-червоний
+            self.image.fill((120, 0, 0))     # Темно-червоний
         else:
-            self.image.fill((0, 0, 0))
-            
+            self.image.fill((0, 0, 0))       # Білий
+
+
     def draw(self, screen, camera_offset, dev_mode=False):
         screen.blit(self.image, self.rect.move(camera_offset))
         self.draw_debug(screen, dev_mode, camera_offset)
 
+
 class TunnelPortal(DebugSprite):
     def __init__(self, x, y, target_gravity, w=None, h=None, color=(0, 0, 0), obj_id=0):
-        # 1. АВТОМАТИЧНЕ ВИЗНАЧЕННЯ РОЗМІРІВ
         if w is None or h is None:
             if target_gravity[0] != 0: # Ліво [-1, 0] або Вправо [1, 0]
                 w, h = 40, 120         #    |Вертикальний   портал|
@@ -394,11 +362,9 @@ class TunnelPortal(DebugSprite):
         
         # Поділ на зону А і Б: щоб зрозуміти, що гравець дійсно ПЕРЕЙШОВ межу, а не просто торкнувся краю.
         if w > h: 
-            # Горизонтальний портал: ділимо по висоті (верхня і задня половини)
             self.rect_a = pygame.Rect(x, y, w, h // 2)
             self.rect_b = pygame.Rect(x, y + h // 2, w, h // 2)
         else:
-            # Вертикальний портал: ділимо по ширині (ліва і права половини)
             self.rect_a = pygame.Rect(x, y, w // 2, h)
             self.rect_b = pygame.Rect(x + w // 2, y, w // 2, h)
         
@@ -406,10 +372,12 @@ class TunnelPortal(DebugSprite):
         self.color = color
         self.is_triggered = False
 
+
     def update_color(self, presets, current_preset):
-        """Оновлюємо колір порталу відповідно до пресета гравця"""
+        """Оновлюється колір порталу відповідно до пресета гравця"""
         gravity_tuple = tuple(self.target_gravity)
         self.color = presets[current_preset].get(gravity_tuple, self.color) #
+
 
     def check_collision(self, player):
         # Механіка спрацювання: гравець має торкнутися обох зон одночасно
@@ -421,22 +389,22 @@ class TunnelPortal(DebugSprite):
                 player.set_gravity(*self.target_gravity)
                 self.is_triggered = True
         elif not hit_a and not hit_b:
-            # Скидаємо тригер лише коли гравець повністю вийшов з об'єкта
             self.is_triggered = False
+
 
     def draw(self, screen, camera_offset, dev_mode=False):
         draw_rect = self.rect.move(camera_offset)
         pygame.draw.rect(screen, self.color, draw_rect)
         self.draw_debug(screen, dev_mode, camera_offset)
 
+
 class JumpPad(DebugSprite):
     def __init__(self, x, y, target_gravity, w=None, h=None, color=(0, 0, 0), obj_id=0):
-        # JumpPad — спрощена версія порталу. Достатньо просто доторкнутися.
         if w is None or h is None:
-            if target_gravity[1] != 0: # Гравітація вгору/вниз -> пад лежить горизонтально
-                w, h = 70, 7
-            else:                      # Гравітація вліво/вправо -> пад стоїть вертикально
-                w, h = 7, 70
+            if target_gravity[1] != 0: 
+                w, h = 70, 7      # Гравітація  вгору/вниз  -> пад горизонтальний
+            else:                      
+                w, h = 7, 70      # Гравітація вліво/вправо -> пад вертикальний
 
         super().__init__(x, y, w, h, obj_id)
         self.rect = pygame.Rect(x, y, w, h)
@@ -444,9 +412,11 @@ class JumpPad(DebugSprite):
         self.color = color
         self.is_triggered = False
 
+
     def update_color(self, presets, current_preset):
         gravity_tuple = tuple(self.target_gravity)
         self.color = presets[current_preset].get(gravity_tuple, self.color)
+
 
     def check_collision(self, player):
         if self.rect.colliderect(player.rect):
@@ -456,10 +426,12 @@ class JumpPad(DebugSprite):
         else:
             self.is_triggered = False
 
+
     def draw(self, screen, camera_offset, dev_mode=False):
         draw_rect = self.rect.move(camera_offset)
         pygame.draw.rect(screen, self.color, draw_rect)
         self.draw_debug(screen, dev_mode, camera_offset)
+
 
 class Campfire(DebugSprite):
     def __init__(self, x, y, side="center", obj_id=0):
@@ -471,35 +443,28 @@ class Campfire(DebugSprite):
         self.color = (255, 140, 0) # Помаранчевий вогник
         self.side = side
         
-        # Смарт-спавн: вираховуємо, де поставити гравця після смерті.
         offset = 20 
         player_w = 50 
         
         # ЛОГІКА РОЗУМНОГО СПАВНУ
         if self.side == "right":
-            # Справа від багаття
             self.spawn_x = x + w + offset
         elif self.side == "left":
-            # Зліва від багаття
             self.spawn_x = x - player_w - offset
         else:
-            # По центру (center) або якщо вказано невірно
+            # Спавнить по центру, якщо вказано невірно
             self.spawn_x = x + (w // 2) - (player_w // 2)
         
         # БАГ ФІКС: Підняття спавну на тррохи вище дасть не втопитися в платформу що в наслідку кине тебе з неї (зправа або зліва, через роботу фізики)
         self.spawn_y = y - 20
 
+
     def draw(self, screen, camera_offset, dev_mode=False):
         # Можна було б намалювати анімований вогонь, але поки що це стильний помаранчевий прямокутник.
         draw_rect = self.rect.move(camera_offset)
-        pygame.draw.rect(screen, self.color, draw_rect)
-        
-        # Якщо увімкнено dev_mode, можна малювати крапку, де саме з'явиться гравець
-        if dev_mode:
-            spawn_point = (self.spawn_x + camera_offset[0] + 25, self.spawn_y + camera_offset[1] + 25)
-            pygame.draw.circle(screen, (0, 255, 0), spawn_point, 5)
-            
+        pygame.draw.rect(screen, self.color, draw_rect)  
         self.draw_debug(screen, dev_mode, camera_offset)
+
 
 class Finish(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
@@ -508,52 +473,47 @@ class Finish(pygame.sprite.Sprite):
         self.image.fill((255, 0, 0))  # Ядерно-червоний
         self.rect = self.image.get_rect(topleft=(x, y))
         
-        self.is_active = False # Чи стоїть гравець у дверях
+        self.is_active = False
         self.font = pygame.font.SysFont("Arial", 20, bold=True)
         self.prompt_text = self.font.render("Press G", True, (255, 255, 255))
 
+
     def check_interaction(self, player_rect):
-        # Перевіряємо, чи гравець у зоні дверей
         self.is_active = self.rect.colliderect(player_rect)
         return self.is_active
+
 
     def draw(self, screen, camera_offset):
         screen.blit(self.image, self.rect.move(camera_offset))
         if self.is_active:
-            # Малюємо "G" трохи вище середини
             draw_rect = self.rect.move(camera_offset)
             prompt_x = draw_rect.centerx - self.prompt_text.get_width() // 2
             prompt_y = draw_rect.centery - 35
             screen.blit(self.prompt_text, (prompt_x, prompt_y))
 
+
 class Camera:
     def __init__(self, width, height):
         self.camera = pygame.Rect(0, 0, width, height)
         self.dead_zone = pygame.Rect(200, 150, 400, 300)
-        self.lerp_speed = 0.075 
+        self.lerp_speed = 0.05 
         # НОВЕ: Точка фіксації для презентацій (якщо None — камера стежить за гравцем)
         self.focus_point = None 
+
 
     def apply(self, entity):
         return entity.rect.move(self.camera.topleft)
 
-    def set_focus(self, x, y):
-        """Фіксує камеру на конкретних координатах світу"""
-        self.focus_point = (x, y)
-
-    def clear_focus(self):
-        """Повертає камеру в режим стеження за гравцем"""
-        self.focus_point = None
 
     def update(self, target):
         screen = pygame.display.get_surface()
         screen_w, screen_h = screen.get_size()
 
         if self.focus_point:
-            # Режим презентації: ціль — твої координати
+            # Режим презентації: ціль — координати
             target_center_x, target_center_y = self.focus_point
         else:
-            # Звичайний режим: ціль — гравець
+            # Звичайний режим:   ціль — гравець
             target_center_x, target_center_y = target.rect.centerx, target.rect.centery
 
             player_on_screen_x = target.rect.centerx + self.camera.x
@@ -597,11 +557,8 @@ class WorldLabel(DebugSprite):
 
     def draw(self, screen, camera_offset, dev_mode=False):
         draw_pos = self.rect.move(camera_offset)
-        # Малюємо фон (якщо є)
         if self.bg_surf:
             screen.blit(self.bg_surf, (draw_pos.x - 5, draw_pos.y - 3))
-        # Малюємо сам текст
         screen.blit(self.text_surf, draw_pos)
-        # Викликаємо стандартний дебаг (рамка + ID), який ти вже написав
         self.draw_debug(screen, dev_mode, camera_offset)
 
