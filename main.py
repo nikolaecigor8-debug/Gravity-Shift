@@ -1,6 +1,6 @@
 from pygame import *
 from pygame.locals import *
-from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel
+from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, random_color
 import os
 import json
  
@@ -306,6 +306,9 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
 
         # Зміна скінів (Якщо бажаєте додати більше пресетів, просто розширте список у класі Player > presets (±67стр))
         if e.key == K_TAB:
+            new_color = random_color()
+            player.color = new_color
+            player.image.fill(new_color)
             player.switch_skin()
             sync_portals_color(portals, player)
 
@@ -561,6 +564,8 @@ while running:
 
     render_game(window, player, labels, finish_obj, camera, 
                 dev_mode, all_debug_objects, game_over, game_won)
+
+    player.draw_face(window, camera)
 
     display.update()
     clock.tick(FPS)

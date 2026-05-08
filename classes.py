@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 
 def random_color():
     # Випадковий колір для хаосу-пресета гравця.
@@ -71,6 +72,7 @@ class Player(pygame.sprite.Sprite):
         self.gravity_force = 0.7  # Константа прискорення.
         self.acceleration  = 1.0  # Як швидко ми розганяємося
         self.friction      = 0.4  # Як швидко ми зупиняємося (тертя)
+        self.color = (0, 0, 0)
         # Напрям гравітації: (x,y). 
         # Це векторна магія: (0,1) тягне вниз, (0,-1) — до стелі. Вектор визначає, куди ми падаємо.
         self.gravity_vec = pygame.Vector2(0, 1)
@@ -112,6 +114,10 @@ class Player(pygame.sprite.Sprite):
         # Режими керування: для тих, хто звик до стрілочок, і для WASD. (arrows_only, wasd_only, both)
         self.control_mode = "both"
         self.respawn_pos = (x, y) # Координати останнього сейвпоінту
+
+    def set_skin(self, new_color):
+        self.color = new_color
+        self.image.fill(self.color)
 
     def switch_skin(self):
         """Динамічне перемикання скінів по колу через словник presets."""
@@ -366,6 +372,85 @@ class Player(pygame.sprite.Sprite):
         color = self.presets[self.current_preset].get(gravity_key, (255, 255, 255))
         return direction, color
 
+    def draw_face(self, window, camera):
+        """Універсальне малювання обличчя. 
+            Логіка адаптується під будь-який вектор гравітації (gx, gy).
+             + адаптивна пропорціонування (Fast Fall)."""
+        gx, gy = int(self.gravity_vec.x), int(self.gravity_vec.y)
+        t = pygame.time.get_ticks() / 1000
+        
+        curr_w, curr_h = self.image.get_size()
+        sw, sh = curr_w / self.size, curr_h / self.size
+
+        current_colors = self.presets.get(self.current_preset, self.presets["classic"])
+        main_color = current_colors.get((gx, gy), (255, 255, 255))
+        dark_color = [int(c * 0.3) for c in main_color]
+
+        cx = self.rect.x + camera.camera.x + self.size // 2
+        cy = self.rect.y + camera.camera.y + self.size // 2
+
+        speed_factor = min(self.vel.length() / 20, 1.0)
+        breath_e = math.sin(t * 3) * 1
+        breath_m = math.sin((t - 0.07) * 3) * 1
+        dynamic_stretch = min(self.vel.length() * 0.4, 10)
+
+        # Пропорції обличчя (гримаса)
+        eye_d_n     = 11     # Відстань між очима (вбік)
+        eye_depth   = -13    # Зміщення очей (вгору/вперед відносно обличчя)
+        mouth_depth = 6      # Зміщення рота (вниз/назад відносно обличчя)
+
+        base_eye_s = (self.size // 5) + int(4 * speed_factor)
+        base_m_len = 37
+        base_m_thick = 6 + dynamic_stretch
+
+        ew, eh = int(base_eye_s * sw), int(base_eye_s * sh)
+
+        if gy != 0:  # ВЕРТИКАЛЬНА ГРАВІТАЦІЯ (Вгору / Вниз)
+            mw_scr, mh_scr = int(base_m_len * sw), int(base_m_thick * sh)
+            eye_dist = int(eye_d_n * sw)
+            
+            e_offset_fix = (base_eye_s - (self.size // 5)) * sh
+            m_offset_fix = (dynamic_stretch / 2) * sh
+            
+            e_fwd = (eye_depth * sh + breath_e * sh - e_offset_fix)
+            m_fwd = (mouth_depth * sh + breath_m * sh - m_offset_fix)
+
+            e_y = cy + e_fwd * gy
+            draw_e_y = e_y if gy == 1 else e_y - eh
+            eyes_pos = [
+                (cx - eye_dist - ew // 2, draw_e_y, ew, eh), # Ліве
+                (cx + eye_dist - ew // 2, draw_e_y, ew, eh)  # Праве
+            ]
+            
+            m_y = cy + m_fwd * gy
+            draw_m_y = m_y if gy == 1 else m_y - mh_scr
+            mouth_rect = (cx - mw_scr // 2, draw_m_y, mw_scr, mh_scr)
+
+        else:  # ГОРИЗОНТАЛЬНА ГРАВІТАЦІЯ (Вліво / Вправо)
+            mw_scr, mh_scr = int(base_m_thick * sw), int(base_m_len * sh)
+            eye_dist = int(eye_d_n * sh)
+            
+            e_offset_fix = (base_eye_s - (self.size // 5)) * sw
+            m_offset_fix = (dynamic_stretch / 2) * sw
+            
+            e_fwd = (eye_depth * sw + breath_e * sw - e_offset_fix)
+            m_fwd = (mouth_depth * sw + breath_m * sw - m_offset_fix)
+
+            e_x = cx + e_fwd * gx
+            draw_e_x = e_x if gx == 1 else e_x - ew
+            eyes_pos = [
+                (draw_e_x, cy - eye_dist - eh // 2, ew, eh), # Верхнє
+                (draw_e_x, cy + eye_dist - eh // 2, ew, eh)  # Нижнє
+            ]
+            
+            m_x = cx + m_fwd * gx
+            draw_m_x = m_x if gx == 1 else m_x - mw_scr
+            mouth_rect = (draw_m_x, cy - mh_scr // 2, mw_scr, mh_scr)
+
+        for eye in eyes_pos:
+            pygame.draw.rect(window, dark_color, eye)
+        pygame.draw.rect(window, dark_color, mouth_rect)
+
 
 class Platform(DebugSprite):
     COLOR_MAP = {
@@ -561,6 +646,11 @@ class Camera:
         self.camera.x += (ideal_x - self.camera.x) * self.lerp_speed
         self.camera.y += (ideal_y - self.camera.y) * self.lerp_speed
 
+    @property
+    def x(self): return self.camera.x
+    
+    @property
+    def y(self): return self.camera.y
 
 class WorldLabel(DebugSprite):
     def __init__(self, text, x, y, size=20, color=(255, 255, 255), bg_alpha=0, obj_id=0):
