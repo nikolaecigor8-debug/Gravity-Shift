@@ -102,7 +102,19 @@ class Player(pygame.sprite.Sprite):
                 (0, 1): (180, 0, 255),
                 (0, -1): (255, 255, 0),
                 (-1, 0): (0, 255, 255),
-                (1, 0): (255, 150, 0) # Неоновий режим.
+                (1, 0): (255, 150, 0)   # Неоновий режим.
+            },
+            "MKin": {
+                (0, 1): (0, 0, 139),    # Темно синій
+                (0, -1): (139, 0, 0),   # Темно червоний
+                (-1, 0): (200,200,87),  # Темно жовтий  
+                (1, 0):  (0, 100, 0)    # Темно зелений
+            },
+            "Sad ='(": {
+                (0, 1): (70, 70, 110),
+                (0, -1): (110, 70, 70),
+                (-1, 0): (220, 220, 170),
+                (1, 0): (70, 100, 70)    # Вицвіло :(
             },
             "random": random_preset()
         }
@@ -454,7 +466,7 @@ class Player(pygame.sprite.Sprite):
 
 class Platform(DebugSprite):
     COLOR_MAP = {
-        "norm": (100, 100, 100), # Звичайна   - сіра
+        "norm": (180, 45, 15),   # Звичайна   - Марс камінь
         "ice": (170, 210, 210),  # Крижана    - сіро-блакитна
         "death": (120, 0, 0)     # Смертельна - темно-червоний
     }
@@ -652,6 +664,7 @@ class Camera:
     @property
     def y(self): return self.camera.y
 
+
 class WorldLabel(DebugSprite):
     def __init__(self, text, x, y, size=20, color=(255, 255, 255), bg_alpha=0, obj_id=0):
         self.font_label = pygame.font.SysFont("Consolas", size, bold=True)
@@ -672,3 +685,100 @@ class WorldLabel(DebugSprite):
         screen.blit(self.text_surf, draw_pos)
         self.draw_debug(screen, dev_mode, camera_offset)
 
+
+class Particle:
+    def __init__(self):
+        self.rect = pygame.Rect(0, 0, 0, 0)
+        self.vel = pygame.Vector2(0, 0)
+        self.alpha = 0
+        self.fade_speed = 0
+        self.color = [0, 0, 0]
+        self.active = False
+
+    def spawn(self, x, y, size, vel, color, fade_speed):
+        self.rect = pygame.Rect(x, y, size, size)
+        self.vel = pygame.Vector2(vel)
+        self.color = list(color)
+        self.alpha = 255
+        self.fade_speed = fade_speed
+        self.active = True
+
+    def update(self, screen_rect):
+        if not self.active:
+            return False
+
+        self.rect.x += self.vel.x
+        self.rect.y += self.vel.y
+        self.alpha -= self.fade_speed
+
+        if self.alpha <= 0 or not screen_rect.colliderect(self.rect):
+            self.active = False
+            return False
+        return True
+
+class ParticleSystem:
+    def __init__(self):
+        self.particles = []
+        self.directions = ["top", "bottom", "left", "right"]
+        self.current_direction = "right"
+
+    def switch_direction(self):
+        """Циклічно змінює напрям вітру"""
+        current_index = self.directions.index(self.current_direction)
+        next_index = (current_index + 1) % len(self.directions)
+        self.current_direction = self.directions[next_index]
+        print(f"Поточний напрям вітру: {self.current_direction}")
+
+    def _adjust_pool(self, target_count):
+        current_count = len(self.particles)
+        if target_count > current_count:
+            self.particles.extend([Particle() for _ in range(target_count - current_count)])
+        elif target_count < current_count:
+            inactive = [p for p in self.particles if not p.active]
+            for i in range(min(len(inactive), current_count - target_count)):
+                self.particles.remove(inactive[i])
+
+    def run(self, surface, area_rect=None, side="top", color=(255, 255, 255),
+            density=0.02, 
+            speed_range=(2.0, 5.0), 
+            size_range=(2, 5), 
+            fade_range=(2, 5)):
+        
+        screen_rect = surface.get_rect()
+        target_area = area_rect if area_rect else screen_rect
+        
+        # Розрахунок ліміту
+        target_count = int(max(target_area.width, target_area.height) * density)
+        self._adjust_pool(min(target_count, 1000))
+
+        for p in self.particles:
+            if not p.active:
+                self.reset_particle(p, side, target_area, color, speed_range, size_range, fade_range)
+            
+            if p.update(screen_rect):
+                p_surf = pygame.Surface((p.rect.width, p.rect.height))
+                p_surf.set_alpha(p.alpha)
+                p_surf.fill(p.color)
+                surface.blit(p_surf, p.rect.topleft)
+
+    def reset_particle(self, p, side, area, color, speed_r, size_r, fade_r):
+        size = random.randint(*size_r)
+        fade = random.uniform(*fade_r)
+        speed = random.uniform(*speed_r)
+        
+        if side == "top":
+            pos = (random.randint(area.left, area.right), area.top)
+            vel = (random.uniform(-0.5, 0.5), speed)
+        elif side == "bottom":
+            pos = (random.randint(area.left, area.right), area.bottom)
+            vel = (random.uniform(-0.5, 0.5), -speed)
+        elif side == "left":
+            pos = (area.left, random.randint(area.top, area.bottom))
+            vel = (speed, random.uniform(-0.5, 0.5))
+        else: # right
+            pos = (area.right, random.randint(area.top, area.bottom))
+            vel = (-speed, random.uniform(-0.5, 0.5))
+        
+        p.spawn(*pos, size, vel, color, fade)
+ 
+ 

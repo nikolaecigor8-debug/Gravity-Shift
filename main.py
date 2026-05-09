@@ -1,9 +1,10 @@
 from pygame import *
+import pygame
 from pygame.locals import *
-from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, random_color
+from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, random_color
 import os
 import json
- 
+
 # ============================ КОНСТАНТИ ГРИ ==================================
 
 WINDOW_WIDTH = 1600
@@ -282,6 +283,10 @@ if campfires:
     player.respawn_pos = (first_fire.spawn_x, first_fire.spawn_y)
     player.respawn()
 
+# Партікли налаштунки
+wind_system = ParticleSystem()
+# platform_dust = ParticleSystem()
+
 # ========================= ОБРОБКА ПОДІЙ =====================================
 
 def handle_keydown_events(e, player, camera, portals, finish_obj):
@@ -311,6 +316,7 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
             player.image.fill(new_color)
             player.switch_skin()
             sync_portals_color(portals, player)
+        
 
     # Перевірка перемоги
     if e.key == K_g and not game_won:
@@ -349,6 +355,9 @@ def handle_dev_key_events(e, player, camera, portals):
             camera.focus_point = (CAMERA_TARGET_X, CAMERA_TARGET_Y)
         else:
             camera.focus_point = None
+    
+    if e.key == K_v: # Зміна напрямку вітру
+        wind_system.switch_direction()
 
     player.update_color()
     sync_portals_color(portals, player)
@@ -440,8 +449,11 @@ def render_game(window, player, labels, finish_obj, camera,
     """Малює всі елементи гри"""
     global click_circle_timer, click_circle_pos, is_drawing_rect, draw_start_pos
 
-    window.fill((30, 30, 30))
+    window.fill((150, 90, 5))
     camera_offset = camera.camera.topleft
+
+    #------------------------------------------------------------------------------ Так тут
+    #------------------------------------------------------------------------------
 
     # Межі світу
     world_border = Rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).move(camera_offset)
@@ -466,7 +478,41 @@ def render_game(window, player, labels, finish_obj, camera,
 
     # Гравець
     player.draw(window, camera_offset)
+    #------------------------------------------------------------------------------ Тут на свій розсуд: вималовувати поверх всього світу
+    # Партікли вітру (зліва направо)
+    wind_system.run(
+        window,
+        density=0.3,                 # Щільність часток
+        side=wind_system.current_direction, # Сторона появи (top, bottom, left, right)
+        color=(90, 50, 20),          # Колір часток
+        speed_range=(10.0, 18.0),    # Швидкість руху
+        size_range=(4, 8),           # Розмір
+        fade_range=(1, 3)            # Згасання (З часом вони пропадають)
+    )
 
+# Недоробка треба інша логіка промальовки частинок через фіксованість до вікна. + Частинки падають іншого краю обєкта в та через обєкт
+    # all_platforms = platforms.sprites() 
+
+    # if all_platforms:
+    #     p0 = all_platforms[0]
+    #     p0_visual_rect = camera.apply(p0)
+
+    #     screen_rect = window.get_rect()
+    #     visible_area = p0_visual_rect.clip(screen_rect)
+
+    #     if visible_area.width > 0 and visible_area.height > 0:
+    #         platform_dust.run(
+    #             window, 
+    #             area_rect=visible_area, 
+    #             side="top",
+    #             color=(255,255,255),
+    #             density=0.08,
+    #             speed_range=(1.0, 4.0),
+    #             size_range=(2, 4),
+    #             fade_range=(2, 6)
+    #         )
+
+    #------------------------------------------------------------------------------  або знайти такіж риски вище і малювати трохи вище фону
     # Дебаг елементи
     if dev_mode:
         draw.rect(window, (255, 255, 255), camera.dead_zone, 1)
@@ -483,14 +529,14 @@ def render_game(window, player, labels, finish_obj, camera,
         draw.circle(window, (0, 200, 255), click_circle_pos, 5)
         click_circle_timer -= 1
 
+    # UI елементи
+    draw_ui_boxes(window, player, dev_mode)
+    
     # Екрани завершення
     if game_over:
         draw_end_screen(window, "ГРА ЗАКІНЧЕНА", "Тисни R, щоб спробувати ще раз", OVERLAY_GAME_OVER)
     elif game_won:
         draw_end_screen(window, "ПЕРЕМОГА!", "Ти справжній LOGIK!", OVERLAY_WIN)
-
-    # UI елементи
-    draw_ui_boxes(window, player, dev_mode)
 
 def draw_dev_rectangle(window, camera_offset):
     """Код для креслення в dev режимі"""
