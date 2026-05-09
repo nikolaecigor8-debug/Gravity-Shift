@@ -1,5 +1,4 @@
 from pygame import *
-import pygame
 from pygame.locals import *
 from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, random_color
 import os
@@ -286,7 +285,20 @@ if campfires:
 # Партікли налаштунки
 wind_system = ParticleSystem()
 # platform_dust = ParticleSystem()
+# ====================== СПРОБА ПЕРЕМЕКНУТИ СКІН ==============================
+try:
+    with open("notes.txt", "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+        saved_preset = lines[0]
+        saved_control = lines[1]
 
+        if saved_preset in player.presets:
+            player.current_preset = saved_preset
+        if saved_control in Player.CONTROL_MODES:
+            player.control_mode = saved_control
+        player.update_color()
+except:
+    pass
 # ========================= ОБРОБКА ПОДІЙ =====================================
 
 def handle_keydown_events(e, player, camera, portals, finish_obj):
@@ -478,15 +490,15 @@ def render_game(window, player, labels, finish_obj, camera,
 
     # Гравець
     player.draw(window, camera_offset)
-    #------------------------------------------------------------------------------ Тут на свій розсуд: вималовувати поверх всього світу
+    # ------------------------------------------------------------------------------ Тут на свій розсуд: вималовувати поверх всього світу
     # Партікли вітру (зліва направо)
     wind_system.run(
         window,
-        density=0.3,                 # Щільність часток
+        density=0.2,                 # Щільність часток
         side=wind_system.current_direction, # Сторона появи (top, bottom, left, right)
         color=(90, 50, 20),          # Колір часток
-        speed_range=(10.0, 18.0),    # Швидкість руху
-        size_range=(4, 8),           # Розмір
+        speed_range=(13.0, 23.0),    # Швидкість руху
+        size_range=(4, 6),           # Розмір
         fade_range=(1, 3)            # Згасання (З часом вони пропадають)
     )
 

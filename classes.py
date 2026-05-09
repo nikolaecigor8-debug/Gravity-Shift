@@ -110,7 +110,7 @@ class Player(pygame.sprite.Sprite):
                 (-1, 0): (200,200,87),  # Темно жовтий  
                 (1, 0):  (0, 100, 0)    # Темно зелений
             },
-            "Sad ='(": {
+            "Sad =(": {
                 (0, 1): (70, 70, 110),
                 (0, -1): (110, 70, 70),
                 (-1, 0): (220, 220, 170),
@@ -637,7 +637,7 @@ class Camera:
 
             player_on_screen_x = target.rect.centerx + self.camera.x
             player_on_screen_y = target.rect.centery + self.camera.y
-            
+           
             self.dead_zone.width = screen_w * 0.4
             self.dead_zone.height = screen_h * 0.4
             self.dead_zone.center = (screen_w // 2, screen_h // 2)
@@ -654,7 +654,7 @@ class Camera:
 
         ideal_x = -target_center_x + (screen_w // 2)
         ideal_y = -target_center_y + (screen_h // 2)
-        
+
         self.camera.x += (ideal_x - self.camera.x) * self.lerp_speed
         self.camera.y += (ideal_y - self.camera.y) * self.lerp_speed
 
@@ -719,7 +719,7 @@ class Particle:
 class ParticleSystem:
     def __init__(self):
         self.particles = []
-        self.directions = ["top", "bottom", "left", "right"]
+        self.directions = ["top","right", "bottom", "left"]
         self.current_direction = "right"
 
     def switch_direction(self):
