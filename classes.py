@@ -65,6 +65,7 @@ class Player(pygame.sprite.Sprite):
         # --- ФІЗИЧНІ СТАТИ (Hitbox) ---
         self.size = 50
         self.rect = pygame.Rect(x, y, self.size, self.size)
+        # self.image = TextureFactory.get_texture(self.type, width, height)
 
         # --- ХАРАКТЕРИСТИКИ ---
         self.speed         = 7    # Швидкість бігу.
@@ -466,18 +467,22 @@ class Player(pygame.sprite.Sprite):
 
 class Platform(DebugSprite):
     COLOR_MAP = {
-        "norm": (180, 45, 15),   # Звичайна   - Марс камінь
+        "norm": (120, 25, 15),   # Звичайна   - Марс поверхня
+        "ore": (0, 0, 0),        # Звичайна   - Марс камінь/руда (йому байдуже на колір на заводі все є)
         "ice": (170, 210, 210),  # Крижана    - сіро-блакитна
         "death": (120, 0, 0)     # Смертельна - темно-червоний
     }
 
     def __init__(self, x, y, w, h, p_type="norm", obj_id=0):
         super().__init__(x, y, w, h, obj_id)
-        self.p_type = p_type
-        self.image = pygame.Surface((w, h))
         # Раніше тут був IF ELSE для кожного скіна, 
         #   але це не оптимально тому його мінятиме словник COLOR_MAP.
-        self.image.fill(self.COLOR_MAP.get(p_type, (0, 0, 0)))  # (0, 0, 0) - тут як сейв що каже про "не знайшов"
+        self.image = TextureFactory.get_texture(p_type, w, h)
+        
+        self.rect = self.image.get_rect()
+        self.rect.topleft = (x, y)
+        self.p_type = p_type
+
 
     def draw(self, screen, camera_offset, dev_mode=False):
         screen.blit(self.image, self.rect.move(camera_offset))
@@ -494,11 +499,17 @@ class GravityTrigger(DebugSprite):
         self.is_triggered = False
 
     def update_color(self, presets, current_preset):
-        self.color = presets[current_preset].get(tuple(self.target_gravity), self.color)
+        new_color = presets[current_preset].get(tuple(self.target_gravity), (255, 255, 255))
+        
+        if self.color != new_color:
+            self.color = new_color
+            tex_type = "portal" if isinstance(self, TunnelPortal) else "jump_pad"
+            self.image = TextureFactory.get_texture(tex_type, self.rect.width, self.rect.height, self.color)
 
     def draw(self, screen, camera_offset, dev_mode=False):
         draw_rect = self.rect.move(camera_offset)
-        pygame.draw.rect(screen, self.color, draw_rect)
+        # pygame.draw.rect(screen, self.color, draw_rect)
+        screen.blit(self.image, self.rect.move(camera_offset))
         self.draw_debug(screen, dev_mode, camera_offset)
 
 
@@ -512,7 +523,8 @@ class TunnelPortal(GravityTrigger):
 
         super().__init__(x, y, w, h, target_gravity, color, obj_id)
         # Портал — це тригер, який змінює фізику світу при проходженні крізь нього.
-        self.rect = pygame.Rect(x, y, w, h)
+        # self.rect = pygame.Rect(x, y, w, h)
+        self.image = TextureFactory.get_texture("portal", w, h, color=self.color)
 
         # Поділ на зону А і Б: щоб зрозуміти, що гравець дійсно ПЕРЕЙШОВ межу, а не просто торкнувся краю.
         if w > h: 
@@ -543,7 +555,8 @@ class JumpPad(GravityTrigger):
                 w, h = 7, 70      # Гравітація вліво/вправо -> пад вертикальний
 
         super().__init__(x, y, w, h, target_gravity, color, obj_id)
-        self.rect = pygame.Rect(x, y, w, h)
+        # self.rect = pygame.Rect(x, y, w, h)
+        self.image = TextureFactory.get_texture("jump_pad", self.rect.width, self.rect.height, color=self.color)
 
     def check_collision(self, player):
         if self.rect.colliderect(player.rect):
@@ -717,10 +730,19 @@ class Particle:
         return True
 
 class ParticleSystem:
-    def __init__(self):
+    def __init__(self, w, h, count=80):
         self.particles = []
+        self.count = count
         self.directions = ["top","right", "bottom", "left"]
         self.current_direction = "right"
+        # Недоробка, ідея в тому щоб помалювати перший цикл часток (вони вистрелювали разом пр першій появі)
+        #   однак поки це не діє
+        for p in range(self.count):
+            p = Particle()
+            p.rect.x = random.randint(0, w)
+            p.rect.y = random.randint(0, h)
+            p.life = random.randint(0, 0) 
+            self.particles.append(p)
 
     def switch_direction(self):
         """Циклічно змінює напрям вітру"""
@@ -781,4 +803,167 @@ class ParticleSystem:
         
         p.spawn(*pos, size, vel, color, fade)
  
- 
+
+class TextureFactory:
+    _cache = {}  # Словник для збереження готових текстур
+    @staticmethod
+    def get_texture(name, w, h, color=(200, 200, 200), grain_size=4):
+        """Головний метод: повертає готову або генерує нову текстуру."""
+        key = (name, w, h, tuple(color))
+        if key in TextureFactory._cache:
+            return TextureFactory._cache[key]
+
+        surf = pygame.Surface((w, h))
+        
+        # Вибір алгоритму малювання
+        if name == "norm": 
+            TextureFactory._draw_sedimentary(surf, w, h, grain_size)
+        elif name == "ore":
+            TextureFactory._draw_regolith(surf, w, h, grain_size)
+        elif name == "portal":
+            TextureFactory._draw_portal(surf, w, h, color, grain_size)
+        elif name == "jump_pad":
+            TextureFactory._draw_jump_pad(surf, w, h, color, grain_size)
+        elif name == "ice": #lab
+            TextureFactory._draw_lab(surf, w, h, grain_size)
+        elif name == "death": #toxic
+            TextureFactory._draw_toxic(surf, w, h, grain_size)
+        elif name == "dither_bg":
+            TextureFactory._draw_dither_bg(surf, w, h, grain_size)  
+        elif name == "dynamic_bg":
+            TextureFactory._draw_dynamic_bg(surf, w, h, grain_size)
+        else:
+            surf.fill((200, 200, 200)) # Default
+
+        # ВАЖЛИВО: оптимізація для слабких пристроїв — конвертує поверхню для швидшого рендерингу.
+        surf = surf.convert() 
+        TextureFactory._cache[key] = surf
+        return surf
+
+
+    @staticmethod
+    def _draw_sedimentary(surf, w, h, gs):
+        """Осадова порода: горизонтальні шари з нерівними межами."""
+        base_red = 160
+        layer_h = h // random.randint(3, 5)
+        for y in range(0, h, layer_h):
+            color = (base_red + random.randint(-20, 20), 60, 30)
+            pygame.draw.rect(surf, color, (0, y, w, layer_h))
+            # Додаємо "зубці" на межі шарів для ефекту каменю
+            for x in range(0, w, gs):
+                if random.random() > 0.5:
+                    pygame.draw.rect(surf, color, (x, y - gs, gs, gs))
+
+    @staticmethod
+    def _draw_regolith(surf, w, h, gs):
+        """Пористий реголіт: база + випадкові плями-пори."""
+        surf.fill((80, 30, 20)) # Темно-червоний
+        for _ in range((w * h) // (gs * 100)):
+            x, y = random.randint(0, w), random.randint(0, h)
+            color = (50, 20, 10) # Колір пори
+            pygame.draw.rect(surf, color, (x, y, gs, gs))
+
+    @staticmethod
+    def _draw_lab(surf, w, h, gs):
+        """Лабораторія (Ice): великі квадрати 4-х кольорів."""
+        colors = [(180, 220, 230), (140, 180, 200), (200, 240, 255), (100, 140, 160)]
+        size = 32 # Розмір плитки
+        for x in range(0, w, size):
+            for y in range(0, h, size):
+                color = random.choice(colors)
+                pygame.draw.rect(surf, color, (x, y, size, size))
+                pygame.draw.rect(surf, (255, 255, 255), (x, y, size, size), 1) # Обводка плитки
+
+    @staticmethod
+    def _draw_toxic(surf, w, h, gs):
+        """Токсичний камінь: кислотні кольори та багато плям."""
+        surf.fill((30, 60, 10)) # Брудно-зелений
+        for _ in range((w * h) // (gs * 10)):
+            x, y = random.randint(0, w), random.randint(0, h)
+            color = random.choice([(50, 100, 20), (100, 200, 50), (20, 40, 5)])
+            pygame.draw.rect(surf, color, (x, y, gs, gs))
+
+    @staticmethod
+    def _draw_dither_bg(surf, w, h, gs):
+        """Фон: градієнт через дізерінг (шахова дошка)."""
+        color_top = (50, 20, 20)
+        color_bot = (20, 5, 5)
+        surf.fill(color_bot)
+        for y in range(0, h, gs):
+            # Чим нижче, тим менше шансів намалювати верхній колір
+            threshold = 1.0 - (y / h)
+            for x in range(0, w, gs):
+                if random.random() < threshold:
+                    pygame.draw.rect(surf, color_top, (x, y, gs, gs))
+
+    @staticmethod
+    def _draw_portal(surf, w, h, color, gs):
+        """Портали: смугаста енергія з дрібним шумом."""
+        base_dark = [max(0, c - 100) for c in color]
+        surf.fill(base_dark)
+
+        # Малюємо смуги енергії
+        for i in range(0, w + h, gs * 4):
+            # Малюємо діагональні смуги для динаміки
+            pygame.draw.line(surf, color, (0, i), (i, 0), gs)
+        
+        # Дрібний "електричний" шум
+        sparkle = [min(255, c + 100) for c in color]
+        for _ in range((w * h) // (gs * 30)):
+            x, y = random.randint(0, w - 1), random.randint(0, h - 1)
+            surf.set_at((x, y), sparkle)
+
+    @staticmethod
+    def _draw_jump_pad(surf, w, h, color, gs):
+        # База — дуже темний варіант основного кольору (металева основа)
+        base_dark = [max(10, c - 150) for c in color]
+        surf.fill(base_dark)
+        
+        # Колір крапок — основний колір скіна (яскравий)
+        for _ in range((w * h) // (gs * 20)): 
+            x, y = random.randint(0, w - gs), random.randint(0, h - gs)
+            dot_color = random.choice([color, [min(255, c + 60) for c in color]])
+            pygame.draw.rect(surf, dot_color, (x, y, gs//2, gs//2))
+            
+        # Додатково можна додати тонку рамку кольору скіна, щоб об'єкт виділявся
+        pygame.draw.rect(surf, color, (0, 0, w, h), 1)
+
+
+    @staticmethod
+    def _draw_dynamic_bg(surf, w, h, gs):
+        color_top = (150, 60, 20)  # Рудий (Марс)
+        color_underground = (40, 15, 10)   # Темна земля
+        
+        transition_y = int(h * 0.5) # 50% висоти — це початок підземелля
+        transition_range = 300
+        
+        # Верх (небо/поверхня)
+        pygame.draw.rect(surf, color_top, (0, 0, w, transition_y))
+        # Низ (глибинне підземелля)
+        pygame.draw.rect(surf, color_underground, (0, transition_y, w, h - transition_y))
+
+        # "Піксельна каша" (Dithering) на межі
+        for _ in range((w * transition_range) // (gs * 2)):
+            rel_x = random.randint(0, w - gs)
+            rel_y = random.randint(transition_y - transition_range // 2, transition_y + transition_range // 2)
+            if rel_y < 0 or rel_y > h - gs: continue
+
+            probability = (rel_y - (transition_y - transition_range // 2)) / transition_range
+            
+            if random.random() < probability:
+                pygame.draw.rect(surf, color_underground, (rel_x, rel_y, gs, gs))
+            else:
+                pygame.draw.rect(surf, color_top, (rel_x, rel_y, gs, gs))
+
+        for _ in range((w * (h - transition_y)) // (gs * 15)):
+            x = random.randint(0, w - gs)
+            y = random.randint(transition_y, h - gs)
+            
+            noise_type = random.random()
+            if noise_type > 0.8: # Рідкісні світлі піщинки
+                noise_color = (60, 25, 15)
+                pygame.draw.rect(surf, noise_color, (x, y, gs // 2, gs // 2))
+            elif noise_type < 0.2: # Темніші вкраплення
+                noise_color = (25, 10, 5)
+                pygame.draw.rect(surf, noise_color, (x, y, gs // 2, gs // 2))
+

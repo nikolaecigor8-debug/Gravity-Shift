@@ -333,7 +333,7 @@ while running:
                     with open("notes.txt", "w", encoding="utf-8") as f:
                         f.write(player.current_preset + "\n")
                         f.write(player.control_mode)
-                    subprocess.Popen([sys.executable, "main.py"])
+                    subprocess.Popen([sys.executable, "main.py", player.current_preset, player.control_mode])
                     running = False
                 elif btn_settings.rect.collidepoint(mouse):
                     current_state = MenuState.SETTINGS

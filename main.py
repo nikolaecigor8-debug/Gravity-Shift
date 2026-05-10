@@ -1,6 +1,6 @@
 from pygame import *
 from pygame.locals import *
-from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, random_color
+from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, TextureFactory, random_color
 import os
 import json
 
@@ -23,6 +23,9 @@ OVERLAY_WIN = (0, 100, 0, 180)
 CAMERA_TARGET_X = 440
 CAMERA_TARGET_Y = 4440
 
+# BG
+BG_WIDTH = WINDOW_WIDTH + 400
+
 init()
 window = display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), RESIZABLE)
 display.set_caption("Gravity Shift")
@@ -41,7 +44,7 @@ def is_on_screen(rect, camera_x, camera_y, display_w, display_h):
             rect.y + camera_y + rect.height > 0 and
             rect.y + camera_y < display_h)
 
-def load_game_world(filename):
+def load_game_world(filename, player_obj):
     """Завантажує об'єкти гри з JSON файлу"""
     with open(filename, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -55,12 +58,17 @@ def load_game_world(filename):
         platforms.add(Platform(p["x"], p["y"], p["w"], p["h"], p_type, obj_id=i))
 
     for i, p in enumerate(data.get("portals", [])):
+        target_g = tuple(p["target_gravity"])
+        # Отримуємо початковий колір під поточний скін гравця
+        start_color = player_obj.presets[player_obj.current_preset].get(target_g, (255, 255, 255))
         portals.add(TunnelPortal(p["x"], p["y"], p["target_gravity"],
-                                w=p.get("w"), h=p.get("h"), obj_id=i))
+                                w=p.get("w"), h=p.get("h"), color=start_color, obj_id=i))
 
     for i, j in enumerate(data.get("jump_pads", [])):
+        target_g = tuple(j["target_gravity"])
+        start_color = player_obj.presets[player_obj.current_preset].get(target_g, (255, 255, 255))
         portals.add(JumpPad(j["x"], j["y"], j["target_gravity"],
-                           w=j.get("w"), h=j.get("h"), obj_id=i))
+                           w=j.get("w"), h=j.get("h"), color=start_color, obj_id=i))
 
     for i, c in enumerate(data.get("campfires", [])):
         campfires.add(Campfire(c["x"], c["y"], side=c.get("side", "center"), obj_id=i))
@@ -272,7 +280,7 @@ player = Player(0, 0)
 camera = Camera(WINDOW_WIDTH, WINDOW_HEIGHT)
 
 # Провантаження світу
-platforms, portals, campfires, finish_obj, labels = load_game_world(OBJECTS_FILE)
+platforms, portals, campfires, finish_obj, labels = load_game_world(OBJECTS_FILE, player)
 all_debug_objects = list(platforms) + list(portals) + list(campfires) + list(labels)
 sync_portals_color(portals, player)
 
@@ -283,7 +291,7 @@ if campfires:
     player.respawn()
 
 # Партікли налаштунки
-wind_system = ParticleSystem()
+wind_system = ParticleSystem(WINDOW_WIDTH, 2500, count=100)
 # platform_dust = ParticleSystem()
 # ====================== СПРОБА ПЕРЕМЕКНУТИ СКІН ==============================
 try:
@@ -445,6 +453,12 @@ def update_game_logic(player, campfires, platforms, portals, camera, finish_obj)
         player.update_visuals()
         finish_obj.check_interaction(player.rect)
 
+        if player.rect.y < 1000:
+            if player.gravity_vec != (0, 1):
+                player.set_gravity(0, 1)
+                player.streetfly_flash = True
+                print("Система безпеки марсіанського простору: Всі об'єкти спостереження залишаються на орбіті!")
+
         # Оновлення камери
         win_w, win_h = window.get_size()
         view_rect = Rect(-camera.camera.x, -camera.camera.y, win_w, win_h)
@@ -461,7 +475,23 @@ def render_game(window, player, labels, finish_obj, camera,
     """Малює всі елементи гри"""
     global click_circle_timer, click_circle_pos, is_drawing_rect, draw_start_pos
 
-    window.fill((150, 90, 5))
+    # window.fill((150, 90, 5))
+    # window.blit(background_surface, (0, 0))
+    scroll_range_world = WORLD_HEIGHT - WINDOW_HEIGHT
+    scroll_range_bg = bg_surface.get_height() - WINDOW_HEIGHT
+
+    if scroll_range_world != 0:
+        rel_y = camera.camera.y / scroll_range_world
+        parallax_y = rel_y * scroll_range_bg
+    else:
+        parallax_y = 0
+
+    bg_w = bg_surface.get_width()
+    parallax_x = (camera.camera.x * 0.1) % bg_w
+
+    window.blit(bg_surface, (parallax_x - bg_w, parallax_y))
+    window.blit(bg_surface, (parallax_x, parallax_y))
+
     camera_offset = camera.camera.topleft
 
     #------------------------------------------------------------------------------ Так тут
@@ -488,19 +518,18 @@ def render_game(window, player, labels, finish_obj, camera,
     # Фініш
     finish_obj.draw(window, camera_offset)
 
-    # Гравець
-    player.draw(window, camera_offset)
     # ------------------------------------------------------------------------------ Тут на свій розсуд: вималовувати поверх всього світу
     # Партікли вітру (зліва направо)
-    wind_system.run(
-        window,
-        density=0.2,                 # Щільність часток
+    if player.rect.y <= 2500:
+        wind_system.run(
+            window,
+            density=0.2,                 # Щільність часток
         side=wind_system.current_direction, # Сторона появи (top, bottom, left, right)
-        color=(90, 50, 20),          # Колір часток
-        speed_range=(13.0, 23.0),    # Швидкість руху
-        size_range=(4, 6),           # Розмір
-        fade_range=(1, 3)            # Згасання (З часом вони пропадають)
-    )
+            color=(200, 160, 130),        # Колір часток
+            speed_range=(13.0, 23.0),    # Швидкість руху
+            size_range=(4, 6),           # Розмір
+            fade_range=(1, 3)            # Згасання (З часом вони пропадають)
+        )
 
 # Недоробка треба інша логіка промальовки частинок через фіксованість до вікна. + Частинки падають іншого краю обєкта в та через обєкт
     # all_platforms = platforms.sprites() 
@@ -525,6 +554,10 @@ def render_game(window, player, labels, finish_obj, camera,
     #         )
 
     #------------------------------------------------------------------------------  або знайти такіж риски вище і малювати трохи вище фону
+
+    # Гравець
+    player.draw(window, camera_offset)
+
     # Дебаг елементи
     if dev_mode:
         draw.rect(window, (255, 255, 255), camera.dead_zone, 1)
@@ -585,6 +618,16 @@ def draw_dev_rectangle(window, camera_offset):
         window.blit(info_surf, (screen_x, screen_y - 25))
 
 # ============================= СТАН ГРИ ======================================
+def stat_back():
+    """Зберігає налаштування гравця у файл при закритті гри."""
+    try:
+        with open("notes.txt", "w", encoding="utf-8") as f:
+            f.write("classic\n")
+            f.write("both")
+        # print("Налаштування повернуто. КІНЕЦЬ!")
+    except Exception as e:
+        print(f"(stat_back)-Помилка при поверненні: {e}")
+
 
 dev_mode = False
 game_won = False
@@ -599,11 +642,14 @@ click_circle_timer = 0
 camera_target = False
 
 # ======================= ОСНОВНИЙ ІГРОВИЙ ЦИКЛ ===============================
+# background_surface = TextureFactory.get_texture("dither_bg", WINDOW_WIDTH, WINDOW_HEIGHT)
+bg_surface = TextureFactory.get_texture("dynamic_bg", BG_WIDTH, WORLD_HEIGHT)
 # Щоб оптимізувати гру для слабих всі дії було виведено з циклу, зібрано все по темам і розділено на функції.
 running = True
 while running:
     for e in event.get():
         if e.type == QUIT:
+            stat_back()
             running = False
 
         elif e.type == KEYDOWN:
@@ -627,5 +673,4 @@ while running:
 
     display.update()
     clock.tick(FPS)
-
 quit()
