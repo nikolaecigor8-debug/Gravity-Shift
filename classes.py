@@ -68,12 +68,12 @@ class Player(pygame.sprite.Sprite):
         # self.image = TextureFactory.get_texture(self.type, width, height)
 
         # --- ХАРАКТЕРИСТИКИ ---
-        self.speed         = 7    # Швидкість бігу.
-        self.jump_power    = 15   # Потужність поштовху.
-        self.gravity_force = 0.7  # Константа прискорення.
-        self.acceleration  = 1.0  # Як швидко ми розганяємося
-        self.friction      = 0.4  # Як швидко ми зупиняємося (тертя)
-        self.color = (0, 0, 0)
+        self.speed         = 7    # Швидкість   (максимальна)
+        self.jump_power    = 15   # Сила стрибка(повштовх)
+        self.gravity_force = 0.7  # Гравітація  (тяжіння)
+        self.acceleration  = 1.0  # Прискорення (розгін)
+        self.friction      = 0.4  # Зупинка     (тертя)
+        self.color = (0, 0, 0)    # Колір адаптивний тому тут по нулям. 
         # Напрям гравітації: (x,y). 
         # Це векторна магія: (0,1) тягне вниз, (0,-1) — до стелі. Вектор визначає, куди ми падаємо.
         self.gravity_vec = pygame.Vector2(0, 1)
@@ -367,9 +367,11 @@ class Player(pygame.sprite.Sprite):
             self.streetfly_flash = False
 
     def apply_streetfly(self):
-        """Механіка Streetfly: рятувальний круг для обнулення швидкості в польоті."""
-        self.vel = pygame.Vector2(0, 0)
-        self.streetfly_flash = True
+        """Механіка Streetfly: обнуляє швидкість падіння.
+            Тепер стрибок не переривається a pyx продовжиться ."""
+        if self.vel.dot(self.gravity_vec) > 0:
+            self.vel -= self.vel.dot(self.gravity_vec) * self.gravity_vec
+            self.streetfly_flash = True
 
     def respawn(self):
         """Повернення додому до багаття, коли рівень виявився сильнішим за тебе..."""
@@ -467,7 +469,7 @@ class Player(pygame.sprite.Sprite):
 
 class Platform(DebugSprite):
     COLOR_MAP = {
-        "norm": (120, 25, 15),   # Звичайна   - Марс поверхня
+        "norm": (180, 85, 75),   # Звичайна   - Марс поверхня
         "ore": (0, 0, 0),        # Звичайна   - Марс камінь/руда (йому байдуже на колір на заводі все є)
         "lab": (170, 210, 210),  # Крижана    - сіро-блакитна
         "toxic": (120, 0, 0)     # Смертельна - темно-червоний
@@ -569,46 +571,62 @@ class JumpPad(GravityTrigger):
 
 class Campfire(DebugSprite):
     def __init__(self, x, y, side="center", obj_id=0):
-        
-        # Стандартний розмір багаття 50x30
-        w, h = 50, 30
+        # Розміри 60x80
+        base_w, base_h = 60, 80
+        w, h = int(base_w * 1.3), int(base_h * 1.3)
         super().__init__(x, y, w, h, obj_id)
-        # Багаття: затишок і безпека.
+        
+        try:
+            raw_image = pygame.image.load("Picture/Spawn_pic.png").convert_alpha()
+            self.image = pygame.transform.scale(raw_image, (w, h))
+        except:
+            self.image = pygame.Surface((w, h))
+            self.image.fill((0, 200, 255)) 
+
         self.rect = pygame.Rect(x, y, w, h)
-        self.color = (255, 140, 0) # Помаранчевий вогник
         self.side = side
 
         offset = 20
         player_w = 50
 
-        # ЛОГІКА РОЗУМНОГО СПАВНУ
+        # ЛОГІКА РОЗУМНОГО СПАВНУ 
         if self.side == "right":
             self.spawn_x = x + w + offset
         elif self.side == "left":
             self.spawn_x = x - player_w - offset
         else:
-            # Спавнить по центру, якщо вказано невірно
+            # Спавнить по центру, якщо щось невірно
             self.spawn_x = x + (w // 2) - (player_w // 2)
+
             
         # БАГ ФІКС: Підняття спавну на тррохи вище дасть не втопитися 
         #       в платформу що у наслідку кине тебе з неї 
         #           (Через нову фізику це буде помітно менше ніж раніше)
-        self.spawn_y = y - 20
+        self.spawn_y = y # - 20
 
     def draw(self, screen, camera_offset, dev_mode=False):
-        # Можна було б намалювати анімований вогонь, 
-        #   але поки що це стильний помаранчевий прямокутник.
-        draw_rect = self.rect.move(camera_offset)
-        pygame.draw.rect(screen, self.color, draw_rect)
+        draw_pos = self.rect.move(camera_offset)
+        screen.blit(self.image, draw_pos)
+        
         self.draw_debug(screen, dev_mode, camera_offset)
 
 
 class Finish(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
         super().__init__()
-        self.image = pygame.Surface((w, h))
-        self.image.fill((255, 0, 0))  # Ядерно-червоний
+        self.fixed_width = 100
+        self.fixed_height = 120
+
+        try:
+            raw_image = pygame.image.load("Picture/Finish_pic.png").convert_alpha()
+            self.image = pygame.transform.scale(raw_image, (self.fixed_width, self.fixed_height))
+        except Exception as e:
+            print(f"Помилка завантаження Finish_pic.png: {e}")
+            self.image = pygame.Surface((self.fixed_width, self.fixed_height))
+            self.image.fill((255, 0, 0)) 
+
         self.rect = self.image.get_rect(topleft=(x, y))
+        
         self.is_active = False
         self.font = pygame.font.SysFont("Arial", 20, bold=True)
         self.prompt_text = self.font.render("Press G", True, (255, 255, 255))
@@ -619,10 +637,15 @@ class Finish(pygame.sprite.Sprite):
 
     def draw(self, screen, camera_offset):
         screen.blit(self.image, self.rect.move(camera_offset))
+        
         if self.is_active:
             draw_rect = self.rect.move(camera_offset)
             prompt_x = draw_rect.centerx - self.prompt_text.get_width() // 2
-            prompt_y = draw_rect.centery - 35
+            prompt_y = draw_rect.top - 35 
+            
+            bg_rect = pygame.Rect(prompt_x - 5, prompt_y - 2, self.prompt_text.get_width() + 10, self.prompt_text.get_height() + 4)
+            pygame.draw.rect(screen, (0, 0, 0, 150), bg_rect)
+            
             screen.blit(self.prompt_text, (prompt_x, prompt_y))
 
 
@@ -911,7 +934,7 @@ class TextureFactory:
 
     @staticmethod
     def _draw_dynamic_bg(surf, w, h, gs):
-        color_top         = (150, 60, 20)  # Рудий (Марс)
+        color_top         = (200, 110, 70)  # Рудий (Марс)
         color_underground = (40, 15, 10)   # Темна земля
         
         transition_y = int(h * 0.5) # 50% висоти — це початок підземелля

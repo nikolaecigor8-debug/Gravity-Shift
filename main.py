@@ -1,8 +1,10 @@
 from pygame import *
 from pygame.locals import *
 from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, TextureFactory, random_color
+import random
 import os
 import json
+
 
 # ============================ КОНСТАНТИ ГРИ ==================================
 
@@ -20,13 +22,14 @@ OVERLAY_GAME_OVER = (100, 0, 0, 180)
 OVERLAY_WIN = (0, 100, 0, 180)
 
 # Камера
-CAMERA_TARGET_X = 440
-CAMERA_TARGET_Y = 4440
+CAMERA_TARGET_X = 450
+CAMERA_TARGET_Y = 3650
 
 # BG
 BG_WIDTH = WINDOW_WIDTH + 400
 
 init()
+mixer.init()
 window = display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), RESIZABLE)
 display.set_caption("Gravity Shift")
 clock = time.Clock()
@@ -35,6 +38,9 @@ ui_font = font.SysFont("Consolas", 18, bold=True)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OBJECTS_FILE = os.path.join(BASE_DIR, "objects.json")
 
+music_dir = os.path.join(BASE_DIR, "Music")
+playlist = []
+game_volume = 0.2
 # =========================== ДОПОМІЖНІ ФУНКЦІЇ ===============================
 
 def is_on_screen(rect, camera_x, camera_y, display_w, display_h):
@@ -154,10 +160,14 @@ def draw_ui_boxes(screen, player, dev_mode):
 def draw_player_info_box(screen, player, margin, padding, line_h, scale, font):
     """Малює інформацію про гравця"""
     gravity_name, p_color = player.get_gravity_info()
+    clean_music_name = current_track_name.rsplit('.', 1)[0]
+    if len(clean_music_name) > 15:
+        clean_music_name = clean_music_name[:12] + "..."
     p_lines = [
         f"Керування: {player.control_mode}",
         f"Скін: {player.current_preset}",
-        f"Гравітація: "
+        f"Гравітація: ",
+        f"Музика: {clean_music_name}"
     ]
 
     box_w = int(260 * scale)
@@ -170,6 +180,7 @@ def draw_player_info_box(screen, player, margin, padding, line_h, scale, font):
     for i, line in enumerate(p_lines):
         txt = font.render(line, True, (255, 255, 255))
         screen.blit(txt, (margin + padding, margin + padding + i * line_h))
+
 
     prefix_w = font.size("Гравітація: ")[0]
     grav_txt = font.render(gravity_name, True, p_color)
@@ -236,6 +247,7 @@ def draw_help_box(screen, player, margin, padding, line_h, scale, font, win_w):
         "LKM      - Креслення",
         "PKM      - Видобути",
         "P        - Режим камери",
+        "(-) (+)  - Зміна музики ",
         "CTRL     - Сховати"
     ]
 
@@ -293,7 +305,7 @@ if campfires:
 # Партікли налаштунки
 wind_system = ParticleSystem(WINDOW_WIDTH, 2500, count=100)
 # platform_dust = ParticleSystem()
-# ====================== СПРОБА ПЕРЕМЕКНУТИ СКІН ==============================
+# ====================== СПРОБА ЗЧИТАТИ НАЛАШТУВАННЯ ==========================
 try:
     with open("notes.txt", "r", encoding="utf-8") as f:
         lines = f.read().splitlines()
@@ -311,7 +323,7 @@ except:
 
 def handle_keydown_events(e, player, camera, portals, finish_obj):
     """Обробляє натискання клавіш"""
-    global game_won, dev_mode
+    global game_won, dev_mode, current_track_idx
 
     if not game_won:
         if dev_mode:
@@ -337,6 +349,10 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
             player.switch_skin()
             sync_portals_color(portals, player)
         
+    if e.key == K_EQUALS:
+        play_track(current_track_idx + 1)
+    elif e.key == K_MINUS:
+        play_track(current_track_idx - 1)
 
     # Перевірка перемоги
     if e.key == K_g and not game_won:
@@ -391,11 +407,11 @@ def handle_dev_mouse_events(e, camera, all_debug_objects):
         m_x, m_y = e.pos
         draw_start_pos = (m_x - camera_offset[0], m_y - camera_offset[1])
         is_drawing_rect = True
-        print(f"Координати натиску миші: {draw_start_pos}")
+        print(f"Координати натиску миші: {json.dumps(current_rect_data) + ","}")
 
     elif e.type == MOUSEBUTTONUP and e.button == 1:  # ЛКМ - кінець креслення
         is_drawing_rect = False
-        print(f"Креслення: {current_rect_data}")
+        print(f"Креслення: {json.dumps(current_rect_data) + ","}")
 
     elif e.type == MOUSEBUTTONDOWN and e.button == 3:  # ПКМ - видобування даних
         camera_offset = camera.camera.topleft
@@ -428,6 +444,7 @@ def handle_dev_mouse_events(e, camera, all_debug_objects):
                 click_circle_pos = e.pos
                 click_circle_timer = 15
                 break
+
 
 # ========================= ІГРОВА ЛОГІКА =====================================
 
@@ -579,9 +596,9 @@ def render_game(window, player, labels, finish_obj, camera,
     
     # Екрани завершення
     if game_over:
-        draw_end_screen(window, "ГРА ЗАКІНЧЕНА", "Тисни R, щоб спробувати ще раз", OVERLAY_GAME_OVER)
+        draw_end_screen(window, "ТИ ПРОГРАВ", "Тисни R, щоб спробувати ще раз", OVERLAY_GAME_OVER)
     elif game_won:
-        draw_end_screen(window, "ПЕРЕМОГА!", "Ти справжній LOGIK!", OVERLAY_WIN)
+        draw_end_screen(window, "ПЕРЕМОГА!", "Дубрався до свого друга!", OVERLAY_WIN)
 
 def draw_dev_rectangle(window, camera_offset):
     """Код для креслення в dev режимі"""
@@ -618,16 +635,47 @@ def draw_dev_rectangle(window, camera_offset):
         window.blit(info_surf, (screen_x, screen_y - 25))
 
 # ============================= СТАН ГРИ ======================================
+
+if os.path.exists(music_dir):
+    playlist = [f for f in os.listdir(music_dir) if f.endswith(('.mp3', '.ogg', '.wav')) and "Main_menu" not in f]
+    playlist.sort()
+
+current_track_idx = 0
+current_track_name = "No Music"
+
+def play_track(idx):
+    global current_track_idx, current_track_name
+    if not playlist: return
+    
+    current_track_idx = idx % len(playlist)
+    current_track_name = playlist[current_track_idx]
+    
+    mixer.music.load(os.path.join(music_dir, current_track_name))
+    mixer.music.play(-1)
+
+# first_track_name = "Clear Momentum.mp3"
+first_track_name = "noncopyright.mp3"
+
+if playlist:
+    if first_track_name in playlist:
+        current_track_idx = playlist.index(first_track_name)
+    else:
+        current_track_idx = 0
+        
+    play_track(current_track_idx)
+    mixer.music.set_volume(game_volume)
+
+
 def stat_back():
     """Зберігає налаштування гравця у файл при закритті гри."""
     try:
         with open("notes.txt", "w", encoding="utf-8") as f:
             f.write("classic\n")
-            f.write("both")
+            f.write("both\n")
+            f.write(game_volume)
         # print("Налаштування повернуто. КІНЕЦЬ!")
     except Exception as e:
         print(f"(stat_back)-Помилка при поверненні: {e}")
-
 
 dev_mode = False
 game_won = False
@@ -674,3 +722,4 @@ while running:
     display.update()
     clock.tick(FPS)
 quit()
+

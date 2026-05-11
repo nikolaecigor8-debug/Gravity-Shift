@@ -4,6 +4,7 @@ import subprocess
 from classes import Player
 import random
 pygame.init()
+pygame.mixer.init()
 
 WIDTH, HEIGHT = 1600, 900
 FPS = 30
@@ -22,6 +23,9 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Gravity Shift - Меню")
 clock = pygame.time.Clock()
 
+pygame.mixer.music.load("Music/Main_menu.mp3")
+pygame.mixer.music.set_volume(0.5)
+pygame.mixer.music.play(-1)
 # ====================== ШРИФТИ ===========================
 
 title_font = pygame.font.SysFont("Consolas", 122, bold=True)
@@ -51,6 +55,8 @@ ADVICE = {
            ееееее  СІКС СЕВЕН '''
     }
 advice_id = random.randint(1, len(ADVICE)) # 1
+volume = 0.5
+dragging_slider = False
 
 class MenuState:
     MAIN = "main"
@@ -320,6 +326,29 @@ def draw_back():
          rect.centery - txt.get_height() // 2))
     return rect
 
+def draw_volume_slider():
+    slider_x = 1080
+    slider_y = 590
+    slider_w = 320
+    slider_h = 10
+
+    # назва
+    title = mid_font.render("Гучність", True, CYAN)
+    screen.blit(title, (slider_x, slider_y - 35))
+
+    # рамка
+    outer = pygame.Rect(slider_x, slider_y, slider_w, slider_h)
+    pygame.draw.rect(screen, WHITE, outer, border_radius=8)
+
+    # внутрішній темний трек
+    inner = pygame.Rect(slider_x + 2, slider_y + 2, slider_w - 4, slider_h - 4)
+
+    pygame.draw.rect(screen, (60, 60, 60), inner, border_radius=8)
+    # позиція повзунка
+    knob_x = slider_x + int(volume * slider_w)
+    pygame.draw.circle(screen, WHITE, (knob_x, slider_y + slider_h // 2), 12)
+    return outer
+
 running = True
 while running:
     # ---------------- ЛОГІЧНИЙ МОНСТР ------------------
@@ -332,7 +361,8 @@ while running:
                 if btn_play.rect.collidepoint(mouse):
                     with open("notes.txt", "w", encoding="utf-8") as f:
                         f.write(player.current_preset + "\n")
-                        f.write(player.control_mode)
+                        f.write(player.control_mode + "\n")
+                        f.write(str(volume))
                     subprocess.Popen([sys.executable, "main.py", player.current_preset, player.control_mode])
                     running = False
                 elif btn_settings.rect.collidepoint(mouse):
@@ -341,6 +371,8 @@ while running:
             elif current_state == MenuState.SETTINGS:
                 if control_rect.collidepoint(mouse):
                     player.switch_control_mode()
+                elif volume_rect.collidepoint(mouse):
+                    dragging_slider = True
                 elif skin_rect.collidepoint(mouse):
                     player.switch_skin()
                 elif advice_rect.collidepoint(mouse):
@@ -349,6 +381,15 @@ while running:
                         advice_id = 1
                 elif back_rect.collidepoint(mouse):
                     current_state = MenuState.MAIN
+
+    if event.type == pygame.MOUSEBUTTONUP:
+       dragging_slider = False
+    if dragging_slider:
+        slider_x = 1080
+        slider_w = 320
+        rel = (mouse[0] - slider_x) / slider_w
+        volume = max(0.0, min(1.0, rel))
+        pygame.mixer.music.set_volume(volume)
 
     draw_grid()
     draw_title()
@@ -364,6 +405,7 @@ while running:
         skin_rect = draw_skin_panel()
         draw_skin_colors()
         advice_rect = draw_advice_panel()
+        volume_rect = draw_volume_slider()
         back_rect = draw_back()
 
     pygame.display.flip()
