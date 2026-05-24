@@ -1,10 +1,13 @@
 from pygame import *
 from pygame.locals import *
-from classes import Player, Platform, TunnelPortal, JumpPad, Campfire, Finish, Camera, WorldLabel, ParticleSystem, TextureFactory, random_color
-import random
+from classes import Player, Platform, BackgroundObject,  \
+    TunnelPortal, JumpPad, Campfire, Finish, WorldLabel,  \
+    Camera, TextureFactory, ParticleSystem, random_color,  \
+    PlayerInfoBox, DevInfoBox, HelpInfoBox, OVERLAY_GAME_OVER,  OVERLAY_WIN
 import os
 import json
-
+import subprocess
+import sys
 
 # ============================ КОНСТАНТИ ГРИ ==================================
 
@@ -13,13 +16,6 @@ WINDOW_HEIGHT = 900
 WORLD_WIDTH = 10000
 WORLD_HEIGHT = 5000
 FPS = 60
-
-# Кольори UI
-UI_BG_COLOR = (0, 0, 0, 150)
-UI_DEV_BG_COLOR = (0, 0, 0, 180)
-UI_HELP_BG_COLOR = (0, 0, 50, 200)
-OVERLAY_GAME_OVER = (100, 0, 0, 180)
-OVERLAY_WIN = (0, 100, 0, 180)
 
 # Камера
 CAMERA_TARGET_X = 450
@@ -30,8 +26,30 @@ BG_WIDTH = WINDOW_WIDTH + 400
 
 init()
 mixer.init()
+
+#|-------------- ФІЛЬТР ЕКРАНУ ------------------|
+# Пікселізація
+death_pixel_scale = 1.0  # Початковий стан (Чим більша цифра, тим сильніша дія фільтру)
+MAX_PIXEL_MUSH = 30.0    # Максимальна сила руйнування кадру
+WIN_PIXEL_SPEED = 0.3    # Швидкість перетворення в кашу
+game_buffer = Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+
+# Розмиття
+win_blur_scale = 1.0      # Початковий стан розмиття
+MAX_WIN_BLUR = 12.0       # Максимальне замилювання (значення 10-15 цілком достатньо, щоб не боліли очі)
+WIN_BLUR_SPEED = 0.15     # Швидкість плавної появи ефекту
+
+# Трясіння
+periodic_shake_enabled = True  # Чи ввімкнено ритмічне трясіння
+shake_period = 3               # Через кожен кадр робити поштовх
+shake_intensity = 5            # Сила поштовху
+shake_tick = 0                 # Внутрішній таймер
+post_surf = Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+
+#|-----------------------------------------------|
+
 window = display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), RESIZABLE)
-display.set_caption("Gravity Shift")
+display.set_caption("Gravity Shift - МАРС")
 clock = time.Clock()
 ui_font = font.SysFont("Consolas", 18, bold=True)
 
@@ -40,7 +58,57 @@ OBJECTS_FILE = os.path.join(BASE_DIR, "objects.json")
 
 music_dir = os.path.join(BASE_DIR, "Music")
 playlist = []
-game_volume = 0.2
+game_volume = 0.1
+
+
+# ====================== СИСТЕМА ЗБЕРЕЖЕННЯ ==========================
+save_file = "save.json"
+
+default_save = {
+    "world_id": "objects.json",
+    "player": {"x": None, "y": None, "campfires": 0, "gravity": [0, 1]},
+    "settings": {"preset": "classic", "control_mode": "both", "window_size": [WINDOW_WIDTH, WINDOW_HEIGHT], "is_fullscreen": False},
+    "audio": {"volume": 0.1, "track_name": None, "track_pos": 0},
+    "dev": {"dev_mode": False}}
+
+try:
+    if os.path.exists(save_file):
+        with open(save_file, "r", encoding="utf-8") as f:
+            save_data = json.load(f)
+    else:
+        save_data = default_save.copy()
+except Exception as e:
+    print(f"Помилка читання save.json: {e}")
+    save_data = default_save.copy()
+
+game_volume      = save_data.get("audio",    {}).get("volume", 0.1)
+saved_window     = save_data.get("settings", {}).get("window_size", [WINDOW_WIDTH, WINDOW_HEIGHT])
+saved_fullscreen = save_data.get("settings", {}).get("is_fullscreen", False)
+
+# ====================== ЗАПУСК ГРИ | ЕКРАН ОЧІКУВАННЯ ========================
+
+if saved_fullscreen:
+    window = display.set_mode((0, 0), FULLSCREEN)
+else:
+    window = display.set_mode(tuple(saved_window), RESIZABLE)
+
+
+loading_font = font.SysFont("Consolas", 80, bold=True)
+sub_font     = font.SysFont("Arial Black", 18, bold=False)
+
+loading_text = loading_font.render("Gravity Shift", True, (0, 220, 255))
+sub_text     = sub_font.render("ПРОВАНТАЖЕННЯ МАРСІАНСЬКОГО ПРОСТОРУ", True, (180, 95, 65))
+
+window.fill((0, 0, 10))
+
+text_rect = loading_text.get_rect(center=(WINDOW_WIDTH // 2, (WINDOW_HEIGHT // 2) - 10))
+sub_rect  = sub_text.get_rect(center=(WINDOW_WIDTH // 2, text_rect.bottom + 10))
+
+window.blit(loading_text, text_rect)
+window.blit(sub_text, sub_rect)
+
+display.flip()
+
 # =========================== ДОПОМІЖНІ ФУНКЦІЇ ===============================
 
 def is_on_screen(rect, camera_x, camera_y, display_w, display_h):
@@ -58,10 +126,15 @@ def load_game_world(filename, player_obj):
     platforms = sprite.Group()
     portals = sprite.Group()
     campfires = sprite.Group()
+    backgrounds = sprite.Group()
 
     for i, p in enumerate(data.get("platforms", [])):
         p_type = p.get("type", "norm")
         platforms.add(Platform(p["x"], p["y"], p["w"], p["h"], p_type, obj_id=i))
+
+    for i, b in enumerate(data.get("backgrounds", [])):
+        b_type = b.get("type", "cave_bg")
+        backgrounds.add(BackgroundObject(b["x"], b["y"], b["w"], b["h"], b_type, obj_id=i))    
 
     for i, p in enumerate(data.get("portals", [])):
         target_g = tuple(p["target_gravity"])
@@ -88,7 +161,7 @@ def load_game_world(filename, player_obj):
                              tuple(l.get("color", (255, 255, 255))),
                              l.get("bg_alpha", 0), obj_id=i))
 
-    return platforms, portals, campfires, finish, labels
+    return platforms, backgrounds, portals, campfires, finish, labels
 
 def auto_index_json(file_path):
     """Автоматично індексує об'єкти в JSON файлі"""
@@ -134,135 +207,20 @@ def sync_portals_color(portal_group, player_obj):
 # ============================== UI ФУНКЦІЇ ===================================
 
 def draw_ui_boxes(screen, player, dev_mode):
-    """Малює всі UI елементи на екрані"""
+    """Малює всі UI елементи на екрані з оптимізованим кешуванням"""
     win_w, win_h = screen.get_size()
-    scale = win_h / 600.0
 
-    font_size = int(18 * scale)
-    ui_font_scaled = font.SysFont("Consolas", font_size, bold=True)
+    # Плашка гравця (тепер вона супер-оптимальна)
+    player_ui_box.update_and_draw(screen, player, current_track_name)
 
-    margin = int(15 * scale)
-    padding = int(12 * scale)
-    line_h = int(22 * scale)
-
-    # Плашка гравця (зверху ліворуч)
-    draw_player_info_box(screen, player, margin, padding, line_h, scale, ui_font_scaled)
-
-    # Плашка розробника (знизу ліворуч)
+    # Плашка розробника 
     if dev_mode:
-        draw_dev_info_box(screen, player, camera, margin, padding, line_h, scale, ui_font_scaled, win_h)
+        dev_ui_box.update_and_draw(screen, player, camera, win_h)
 
-    # Плашка інструкцій (зверху праворуч)
+    # Плашка інструкцій (для неї теж можна зробити клас, але оскільки вона викликається рідко через Ctrl, можна лишити стару)
     keys = key.get_pressed()
     if keys[K_LCTRL] or keys[K_RCTRL]:
-        draw_help_box(screen, player, margin, padding, line_h, scale, ui_font_scaled, win_w)
-
-def draw_player_info_box(screen, player, margin, padding, line_h, scale, font):
-    """Малює інформацію про гравця"""
-    gravity_name, p_color = player.get_gravity_info()
-    clean_music_name = current_track_name.rsplit('.', 1)[0]
-    if len(clean_music_name) > 15:
-        clean_music_name = clean_music_name[:12] + "..."
-    p_lines = [
-        f"Керування: {player.control_mode}",
-        f"Скін: {player.current_preset}",
-        f"Гравітація: ",
-        f"Музика: {clean_music_name}"
-    ]
-
-    box_w = int(260 * scale)
-    box_h = padding * 1.6 + len(p_lines) * line_h
-
-    bg = Surface((box_w, box_h), SRCALPHA)
-    bg.fill(UI_BG_COLOR)
-    screen.blit(bg, (margin, margin))
-
-    for i, line in enumerate(p_lines):
-        txt = font.render(line, True, (255, 255, 255))
-        screen.blit(txt, (margin + padding, margin + padding + i * line_h))
-
-
-    prefix_w = font.size("Гравітація: ")[0]
-    grav_txt = font.render(gravity_name, True, p_color)
-    screen.blit(grav_txt, (margin + padding + prefix_w, margin + padding + 2 * line_h))
-
-def draw_dev_info_box(screen, player, camera, margin, padding, line_h, scale, font, win_h):
-    """Малює інформацію для розробника"""
-    m_pos = mouse.get_pos()
-    world_m_x = m_pos[0] - camera.camera.x
-    world_m_y = m_pos[1] - camera.camera.y
-
-    focus_status = f"({int(camera.focus_point[0])}, {int(camera.focus_point[1])})" if camera.focus_point else "Гравець"
-
-    dev_lines = [
-        "--- РЕЖИМ РОЗРОБНИКА ---",
-        f"Гравець X:{int(player.rect.x)} Y:{int(player.rect.y)}",
-        f"Миша   X:{int(world_m_x)} Y:{int(world_m_y)}",
-        f"Фокус камери: {focus_status}",
-        f"[1]-Down|[2]-Up|[3]-Left|[4]-Right",
-        f"Spawn: {player.respawn_pos}"
-    ]
-
-    box_w = int(365 * scale)
-    box_h = padding * 1.6 + len(dev_lines) * line_h
-    y_pos = win_h - box_h - margin
-
-    bg = Surface((box_w, box_h), SRCALPHA)
-    bg.fill(UI_DEV_BG_COLOR)
-    screen.blit(bg, (margin, y_pos))
-
-    for i, line in enumerate(dev_lines):
-        if i == 0: t_color = (255, 255, 0)      # Заголовок
-        elif i == 3: t_color = (255, 215, 0)    # Фокус камери
-        elif i == 2: t_color = (100, 200, 255)  # Миша
-        elif i == 1: t_color = (150, 255, 150)  # Гравець
-        else: t_color = (255, 255, 255)         # Все інше
-
-        txt = font.render(line, True, t_color)
-        screen.blit(txt, (margin + padding, y_pos + padding + i * line_h))
-
-def draw_help_box(screen, player, margin, padding, line_h, scale, font, win_w):
-    """Малює плашку інструкції керування"""
-    current_mode = player.control_mode.lower()
-
-    if "wasd" in current_mode and "arrows" in current_mode:
-        mode_display = "Обидва  "
-    elif "wasd" in current_mode:
-        mode_display = "WASD    "
-    elif "arrows" in current_mode:
-        mode_display = "Стрілки "
-    else:
-        mode_display = "Обидва  "
-
-    help_lines = [
-        "  КЕРУВАННЯ  ",
-        "-------------",
-        f"{mode_display} - Рух",
-        "TAB      - Скін",
-        "F↓L↓| M  - Пресет",
-        "SHIFT    - Зависання",
-        "R        - Респавн",
-        "F11      - Весь екран",
-        "ESCAPE   - Розробник:",
-        "LKM      - Креслення",
-        "PKM      - Видобути",
-        "P        - Режим камери",
-        "(-) (+)  - Зміна музики ",
-        "CTRL     - Сховати"
-    ]
-
-    box_w = int(250 * scale)
-    box_h = padding * 1.6 + len(help_lines) * line_h
-    x_pos = win_w - box_w - margin
-
-    bg = Surface((box_w, box_h), SRCALPHA)
-    bg.fill(UI_HELP_BG_COLOR)
-    screen.blit(bg, (x_pos, margin))
-
-    for i, line in enumerate(help_lines):
-        t_c = (100, 200, 255) if i < 2 else (255, 255, 255)
-        txt = font.render(line, True, t_c)
-        screen.blit(txt, (x_pos + padding, margin + padding + i * line_h))
+        help_ui_box.draw(screen, win_w, player)
 
 def draw_end_screen(screen, title, subtitle, color):
     """Малює екран завершення гри (Поразка або Перемога)"""
@@ -281,7 +239,67 @@ def draw_end_screen(screen, title, subtitle, color):
     screen.blit(title_surf, (win_w // 2 - title_surf.get_width() // 2, win_h // 2 - 50))
     screen.blit(sub_surf, (win_w // 2 - sub_surf.get_width() // 2, win_h // 2 + 30))
 
-# ========================= ІНІЦІАЛІЗАЦІЯ ГРИ =================================
+# ========================== ФУНКЦІЇ ПАМЯТІ ===================================
+
+def play_track(idx, start_time_ms=0):
+    global current_track_idx, current_track_name
+    if not playlist: return
+    
+    current_track_idx = idx % len(playlist)
+    current_track_name = playlist[current_track_idx]
+    
+    mixer.music.load(os.path.join(music_dir, current_track_name))
+    
+    # Конвертуємо мілісекунди в секунди для запуску треку з потрібної позиції
+    start_sec = start_time_ms / 1000.0
+    mixer.music.play(-1, start=start_sec)
+
+def save_full_progress():
+    """Зберігає ПОВНИЙ стан гри (для кнопки 'В меню')."""
+    win_w, win_h = window.get_size()
+    music_pos = max(0, mixer.music.get_pos()) 
+
+    out_data = {
+        "world_id": os.path.basename(OBJECTS_FILE),
+        "player": {
+            "x": player.rect.x,
+            "y": player.rect.y,
+            "campfires": player.last_campfire_id,
+            "gravity": [int(player.gravity_vec.x), int(player.gravity_vec.y)]
+        },
+        "settings": {
+            "preset": player.current_preset,
+            "control_mode": player.control_mode,
+            "window_size": [win_w, win_h],
+            "is_fullscreen": bool(window.get_flags() & FULLSCREEN)
+        },
+        "audio": {
+            "volume": game_volume,
+            "track_name": current_track_name,
+            "track_pos": music_pos
+        }
+    }
+    with open(save_file, "w", encoding="utf-8") as f:
+        json.dump(out_data, f, ensure_ascii=False, indent=4)
+
+def standart_progress():
+    """Скидає абсолютно все до заводських налаштувань (викликається при закритті на хрестик)."""
+    try:
+        with open(save_file, "w", encoding="utf-8") as f:
+            json.dump(default_save, f, ensure_ascii=False, indent=4)
+        print("Прогрес та налаштування повністю скинуто до заводських.")
+    except Exception as e:
+        print(f"Помилка при скиданні налаштувань: {e}")
+
+# =========================== ІНІЦІАЛІЗАЦІЯ ГРИ ===============================
+# Об'єкти UI
+win_w, win_h = window.get_size()
+scale = win_h / 600.0
+
+# Розумні плашки
+player_ui_box = PlayerInfoBox(scale, font_name="Consolas")
+dev_ui_box = DevInfoBox(scale, font_name="Consolas")
+help_ui_box = HelpInfoBox(scale, font_name="Consolas")
 
 # Синхронізація ID в JSON
 auto_index_json(OBJECTS_FILE)
@@ -289,10 +307,17 @@ print("Усі ID (nomer) успішно синхронізовано!")
 
 # База гри
 player = Player(0, 0)
+player.current_preset = save_data.get("settings", {}).get("preset", "classic")
+player.control_mode   = save_data.get("settings", {}).get("control_mode", "both")
+player.update_color()
+
 camera = Camera(WINDOW_WIDTH, WINDOW_HEIGHT)
 
 # Провантаження світу
-platforms, portals, campfires, finish_obj, labels = load_game_world(OBJECTS_FILE, player)
+saved_world = save_data.get("world_id", os.path.basename(OBJECTS_FILE))
+world_path = os.path.join(BASE_DIR, saved_world)
+
+platforms, backgrounds, portals, campfires, finish_obj, labels = load_game_world(OBJECTS_FILE, player)
 all_debug_objects = list(platforms) + list(portals) + list(campfires) + list(labels)
 sync_portals_color(portals, player)
 
@@ -300,30 +325,64 @@ sync_portals_color(portals, player)
 if campfires:
     first_fire = list(campfires)[0]
     player.respawn_pos = (first_fire.spawn_x, first_fire.spawn_y)
-    player.respawn()
 
-# Партікли налаштунки
+# Партікли
 wind_system = ParticleSystem(WINDOW_WIDTH, 2500, count=100)
 # platform_dust = ParticleSystem()
-# ====================== СПРОБА ЗЧИТАТИ НАЛАШТУВАННЯ ==========================
-try:
-    with open("notes.txt", "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
-        saved_preset = lines[0]
-        saved_control = lines[1]
 
-        if saved_preset in player.presets:
-            player.current_preset = saved_preset
-        if saved_control in Player.CONTROL_MODES:
-            player.control_mode = saved_control
-        player.update_color()
-except:
-    pass
+# Перезапис координат із збереження
+p_data = save_data.get("player", {})
+if p_data.get("x") is not None and p_data.get("y") is not None:
+    player.rect.x = p_data["x"]
+    player.rect.y = p_data["y"]
+
+# Логіка завантаження багаття
+if p_data.get("campfires") is not None:
+    player.last_campfire_id = p_data["campfires"]
+    for fire in campfires:
+        if fire.obj_id == player.last_campfire_id:
+            player.respawn_pos = (fire.spawn_x, fire.spawn_y)
+            break
+player.respawn()
+
+if p_data.get("x") is not None and p_data.get("y") is not None:
+    player.rect.x = p_data["x"]
+    player.rect.y = p_data["y"]
+if p_data.get("gravity"):
+    player.set_gravity(p_data["gravity"][0], p_data["gravity"][1])
+
+# Логіка завантаження музики
+if os.path.exists(music_dir):
+    playlist = [f for f in os.listdir(music_dir) if f.endswith(('.mp3', '.ogg', '.wav')) and "Main_menu" not in f]
+    playlist.sort()
+current_track_idx = 0
+current_track_name = "No Music"
+
+# ПАУЗА
+game_paused = False
+pause_blur_scale = 1.0
+MAX_PAUSE_BLUR = 10.0
+PAUSE_BLUR_SPEED = 0.35
+
+# Логіка стартового запуску
+saved_track = save_data.get("audio", {}).get("track_name")
+saved_pos = save_data.get("audio", {}).get("track_pos", 0)
+
+if playlist:
+    if saved_track in playlist:
+        current_track_idx = playlist.index(saved_track)
+    else:
+        current_track_idx = playlist.index("noncopyright.mp3") if "noncopyright.mp3" in playlist else 0
+        saved_pos = 0 # Якщо трек не знайдено, починаємо з нуля
+        
+    play_track(current_track_idx, start_time_ms=saved_pos)
+    mixer.music.set_volume(game_volume)
+
 # ========================= ОБРОБКА ПОДІЙ =====================================
 
 def handle_keydown_events(e, player, camera, portals, finish_obj):
     """Обробляє натискання клавіш"""
-    global game_won, dev_mode, current_track_idx
+    global game_won, dev_mode, current_track_idx, draw_ui, game_paused
 
     if not game_won:
         if dev_mode:
@@ -348,6 +407,9 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
             player.image.fill(new_color)
             player.switch_skin()
             sync_portals_color(portals, player)
+
+        if e.key == K_ESCAPE:
+            game_paused = not game_paused
         
     if e.key == K_EQUALS:
         play_track(current_track_idx + 1)
@@ -360,7 +422,7 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
             game_won = True
 
     # Режим розробника
-    if e.key == K_ESCAPE:
+    if e.key == K_LALT or e.key ==  K_RALT:
         dev_mode = not dev_mode
         print(f"Режим розробника: {dev_mode}")
 
@@ -371,6 +433,9 @@ def handle_keydown_events(e, player, camera, portals, finish_obj):
             window = display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), RESIZABLE)
         else:
             window = display.set_mode((0, 0), FULLSCREEN)
+
+    if e.key == K_F9:
+        draw_ui = not draw_ui
 
 def handle_dev_key_events(e, player, camera, portals):
     """Обробляє події клавіш для режимі розробника"""
@@ -394,6 +459,7 @@ def handle_dev_key_events(e, player, camera, portals):
     
     if e.key == K_v: # Зміна напрямку вітру
         wind_system.switch_direction()
+
 
     player.update_color()
     sync_portals_color(portals, player)
@@ -445,6 +511,22 @@ def handle_dev_mouse_events(e, camera, all_debug_objects):
                 click_circle_timer = 15
                 break
 
+def handle_pause_click(mouse_pos):
+    global game_paused, running, return_to_menu
+
+    if pause_buttons[0].collidepoint(mouse_pos):
+        # ДОГРАТИ
+        game_paused = False
+
+    elif pause_buttons[1].collidepoint(mouse_pos):
+        # НАЛАШТУНКИ (поки пусто)
+        pass
+
+    elif pause_buttons[2].collidepoint(mouse_pos):
+        # Я ЩЕ ПОВЕРНУСЯ (вихід до головного меню)
+        save_full_progress()
+        return_to_menu = True
+        running = False
 
 # ========================= ІГРОВА ЛОГІКА =====================================
 
@@ -456,6 +538,7 @@ def update_game_logic(player, campfires, platforms, portals, camera, finish_obj)
     for fire in campfires:
         if fire.rect.colliderect(player.rect):
             player.respawn_pos = (fire.spawn_x, fire.spawn_y)
+            player.last_campfire_id = fire.obj_id
 
     # Перевірка меж світу (+ запобіжник вильоту за межі)
     if (player.rect.right > WORLD_WIDTH + 5 or player.rect.left < -5 or
@@ -488,10 +571,11 @@ def update_game_logic(player, campfires, platforms, portals, camera, finish_obj)
 # ============================ МАЛЮВАННЯ ======================================
 
 def render_game(window, player, labels, finish_obj, camera, 
-                dev_mode, all_debug_objects, game_over, game_won):
+                dev_mode, all_debug_objects, backgrounds, draw_ui):
     """Малює всі елементи гри"""
     global click_circle_timer, click_circle_pos, is_drawing_rect, draw_start_pos
 
+    # Раніше фон був монотонним. Добре що це було змінено)
     # window.fill((150, 90, 5))
     # window.blit(background_surface, (0, 0))
     scroll_range_world = WORLD_HEIGHT - WINDOW_HEIGHT
@@ -522,6 +606,12 @@ def render_game(window, player, labels, finish_obj, camera,
     win_w, win_h = window.get_size()
     view_rect = Rect(-camera.camera.x, -camera.camera.y, win_w, win_h)
 
+    # Об'єкт фону для виключень. Для мість де звичний не підійде
+    for bg in backgrounds:
+        if bg.rect.colliderect(view_rect):
+            bg.update()
+            bg.draw(window, camera_offset)
+            
     # Ігрові об'єкти
     for obj in all_debug_objects:
         if obj.rect.colliderect(view_rect):
@@ -535,12 +625,15 @@ def render_game(window, player, labels, finish_obj, camera,
     # Фініш
     finish_obj.draw(window, camera_offset)
 
+    # Гравець
+    player.draw(window, camera_offset)
+
     # ------------------------------------------------------------------------------ Тут на свій розсуд: вималовувати поверх всього світу
     # Партікли вітру (зліва направо)
     if player.rect.y <= 2500:
         wind_system.run(
             window,
-            density=0.2,                 # Щільність часток
+            density=0.9,                 # Щільність часток
         side=wind_system.current_direction, # Сторона появи (top, bottom, left, right)
             color=(200, 160, 130),        # Колір часток
             speed_range=(13.0, 23.0),    # Швидкість руху
@@ -548,7 +641,7 @@ def render_game(window, player, labels, finish_obj, camera,
             fade_range=(1, 3)            # Згасання (З часом вони пропадають)
         )
 
-# Недоробка треба інша логіка промальовки частинок через фіксованість до вікна. + Частинки падають іншого краю обєкта в та через обєкт
+    # Недоробка треба інша логіка промальовки частинок через фіксованість до вікна. + Частинки падають іншого краю обєкта в та через обєкт
     # all_platforms = platforms.sprites() 
 
     # if all_platforms:
@@ -572,9 +665,6 @@ def render_game(window, player, labels, finish_obj, camera,
 
     #------------------------------------------------------------------------------  або знайти такіж риски вище і малювати трохи вище фону
 
-    # Гравець
-    player.draw(window, camera_offset)
-
     # Дебаг елементи
     if dev_mode:
         draw.rect(window, (255, 255, 255), camera.dead_zone, 1)
@@ -591,14 +681,15 @@ def render_game(window, player, labels, finish_obj, camera,
         draw.circle(window, (0, 200, 255), click_circle_pos, 5)
         click_circle_timer -= 1
 
-    # UI елементи
-    draw_ui_boxes(window, player, dev_mode)
-    
-    # Екрани завершення
-    if game_over:
-        draw_end_screen(window, "ТИ ПРОГРАВ", "Тисни R, щоб спробувати ще раз", OVERLAY_GAME_OVER)
-    elif game_won:
-        draw_end_screen(window, "ПЕРЕМОГА!", "Дубрався до свого друга!", OVERLAY_WIN)
+    if draw_ui:
+            # UI елементи
+            draw_ui_boxes(window, player, dev_mode)
+            
+    #         # Екрани завершення
+    #         if game_over:
+    #             draw_end_screen(window, "ТЕБЕ ОПРОМІНЕНО", "щоб відновити себе тисни R", OVERLAY_GAME_OVER)
+    #         elif game_won:
+    #             draw_end_screen(window, "ПЕРЕМОГА!", "Дубрався до свого друга!", OVERLAY_WIN)
 
 def draw_dev_rectangle(window, camera_offset):
     """Код для креслення в dev режимі"""
@@ -634,71 +725,156 @@ def draw_dev_rectangle(window, camera_offset):
 
         window.blit(info_surf, (screen_x, screen_y - 25))
 
-# ============================= СТАН ГРИ ======================================
-
-if os.path.exists(music_dir):
-    playlist = [f for f in os.listdir(music_dir) if f.endswith(('.mp3', '.ogg', '.wav')) and "Main_menu" not in f]
-    playlist.sort()
-
-current_track_idx = 0
-current_track_name = "No Music"
-
-def play_track(idx):
-    global current_track_idx, current_track_name
-    if not playlist: return
+def apply_pixelate_blur(src_surface, dest_surface, current_scale):
+    """Приймає вихідний буфер (src_surface), стискає його в 'кашу'
+        і розтягує на весь розмір головного вікна (dest_surface)."""
+    actual_w, actual_h = dest_surface.get_size()
     
-    current_track_idx = idx % len(playlist)
-    current_track_name = playlist[current_track_idx]
+    if current_scale <= 1.0:
+        # Якщо ефект вимкнено або повернуто до норми — просто копіюємо 1:1
+        transform.scale(src_surface, (actual_w, actual_h), dest_surface)
+        return
+
+    # Обчислюємо знижену роздільну здатність для ефекту
+    low_res_w = max(1, int(src_surface.get_width() // current_scale))
+    low_res_h = max(1, int(src_surface.get_height() // current_scale))
     
-    mixer.music.load(os.path.join(music_dir, current_track_name))
-    mixer.music.play(-1)
+    # Стискаємо зображення (створюється ефект втрати пікселів)
+    small_surf = transform.scale(src_surface, (low_res_w, low_res_h))
+    
+    # Розтягуємо назад на повний екран головного вікна
+    transform.scale(small_surf, (actual_w, actual_h), dest_surface)
 
-# first_track_name = "Clear Momentum.mp3"
-first_track_name = "noncopyright.mp3"
+def apply_smooth_blur(src_surface, dest_surface, current_scale):
+    """Приймає вихідний буфер (src_surface), плавно замилює його через smoothscale
+        і розтягує на весь розмір головного вікна (dest_surface)."""
+    actual_w, actual_h = dest_surface.get_size()
+    
+    if current_scale <= 1.0:
+        # Якщо ефект не активний — просто копіюємо картинку без змін
+        transform.scale(src_surface, (actual_w, actual_h), dest_surface)
+        return
 
-if playlist:
-    if first_track_name in playlist:
-        current_track_idx = playlist.index(first_track_name)
+    # Обчислюємо тимчасову низьку роздільну здатність для розмиття
+    low_res_w = max(1, int(src_surface.get_width() // current_scale))
+    low_res_h = max(1, int(src_surface.get_height() // current_scale))
+    
+    # Стискаємо картинку з м'яким згладжуванням сусідніх пікселів
+    small_surf = transform.smoothscale(src_surface, (low_res_w, low_res_h))
+    
+    # Розтягуємо назад на повний екран головного вікна
+    transform.smoothscale(small_surf, (actual_w, actual_h), dest_surface)
+
+def draw_screen():
+    """Менеджер конвеєру рендерингу (Поразка, Перемога, Гра)"""
+    global death_pixel_scale, win_blur_scale
+
+    if game_over:
+        if death_pixel_scale < MAX_PIXEL_MUSH:
+            death_pixel_scale += WIN_PIXEL_SPEED
+
+        # Малює світ у буфер
+        render_game(game_buffer, player, labels, finish_obj, camera, 
+                    dev_mode, all_debug_objects, backgrounds, draw_ui=False)
+        player.draw_face(game_buffer, camera)
+
+        # Фільтр поразки
+        apply_pixelate_blur(game_buffer, window, death_pixel_scale)
+
+        # Чіткий UI поверх
+        draw_ui_boxes(window, player, dev_mode)
+        draw_end_screen(window, "ТЕБЕ ОПРОМІНЕНО", "Щоб відновити себе тисни R", OVERLAY_GAME_OVER)
+
+    elif game_won:
+        if win_blur_scale < MAX_WIN_BLUR:
+            win_blur_scale += WIN_BLUR_SPEED
+
+        # Малює світ у буфер
+        render_game(game_buffer, player, labels, finish_obj, camera, 
+                    dev_mode, all_debug_objects, backgrounds, draw_ui=False)
+        player.draw_face(game_buffer, camera)
+
+        # Фільтр перемоги
+        apply_smooth_blur(game_buffer, window, win_blur_scale)
+
+        # Чіткий UI поверх
+        draw_ui_boxes(window, player, dev_mode)
+        draw_end_screen(window, "ПЕРЕМОГА!", "Дібрався до свого друга!", OVERLAY_WIN)
+
     else:
-        current_track_idx = 0
-        
-    play_track(current_track_idx)
-    mixer.music.set_volume(game_volume)
+        # Звичайний ігровий процес
+        death_pixel_scale = 1.0
+        win_blur_scale = 1.0
+        render_game(window, player, labels, finish_obj, camera, 
+                    dev_mode, all_debug_objects, backgrounds, draw_ui=draw_ui)
+        player.draw_face(window, camera)
 
+def draw_pause_menu(screen):
+    """Меню паузи"""
+    global pause_buttons
+    win_w, win_h = screen.get_size()
 
-def stat_back():
-    """Зберігає налаштування гравця у файл при закритті гри."""
-    try:
-        with open("notes.txt", "w", encoding="utf-8") as f:
-            f.write("classic\n")
-            f.write("both\n")
-            f.write(game_volume)
-        # print("Налаштування повернуто. КІНЕЦЬ!")
-    except Exception as e:
-        print(f"(stat_back)-Помилка при поверненні: {e}")
+    # Затемнення
+    overlay = Surface((win_w, win_h), SRCALPHA)
+    overlay.fill((0, 0, 0, 170))
+    screen.blit(overlay, (0, 0))
 
-dev_mode = False
-game_won = False
+    title_font = font.SysFont("Consolas", 56, bold=True)
+    button_font = font.SysFont("Consolas", 28, bold=True)
+
+    title = title_font.render("ЗУПИНКА ЧАСУ", True, (255, 255, 255))
+    screen.blit(title, (win_w // 2 - title.get_width() // 2, win_h // 2 - 180))
+
+    buttons = [
+        "ДОГРАТИ",
+        "НАЛАШТУНКИ (СКОРО)",
+        "Я ЩЕ ПОВЕРНУСЯ"]
+
+    pause_buttons = []
+    mouse_pos  = mouse.get_pos()
+
+    for i, text in enumerate(buttons):
+        rect = Rect(win_w // 2 - 180, win_h // 2 - 60 + i * 90, 360, 60)
+        hover = rect.collidepoint(mouse_pos )
+        bg = (80, 30, 20) if hover else (40, 10, 10)
+        draw.rect(screen, bg, rect, border_radius=10)
+        draw.rect(screen, (180, 85, 75), rect, 2, border_radius=10)
+
+        txt = button_font.render(text, True, (255,255,255))
+        screen.blit(txt, (rect.centerx - txt.get_width() // 2, rect.centery - txt.get_height() // 2))
+        pause_buttons.append(rect)
+
+# ============================= СТАН ГРИ ======================================
+dev_mode  = False
+draw_ui   = True
+game_won  = False
 game_over = False
+game_paused = False
+return_to_menu = False
 
 # Змінні для креслення в dev режимі
-draw_start_pos = None
-is_drawing_rect = False
-current_rect_data = {"x": 0, "y": 0, "w": 0, "h": 0}
-click_circle_pos = None
+draw_start_pos     = None
+is_drawing_rect    = False
+current_rect_data  = {"x": 0, "y": 0, "w": 0, "h": 0}
+click_circle_pos   = None
 click_circle_timer = 0
-camera_target = False
+camera_target      = False
+
+
 
 # ======================= ОСНОВНИЙ ІГРОВИЙ ЦИКЛ ===============================
-# background_surface = TextureFactory.get_texture("dither_bg", WINDOW_WIDTH, WINDOW_HEIGHT)
 bg_surface = TextureFactory.get_texture("dynamic_bg", BG_WIDTH, WORLD_HEIGHT)
-# Щоб оптимізувати гру для слабих всі дії було виведено з циклу, зібрано все по темам і розділено на функції.
+
 running = True
 while running:
     for e in event.get():
         if e.type == QUIT:
-            stat_back()
+            standart_progress()
             running = False
+        
+        elif e.type == MOUSEBUTTONDOWN and game_paused:
+            if e.button == 1:
+                handle_pause_click(e.pos)
 
         elif e.type == KEYDOWN:
             handle_keydown_events(e, player, camera, portals, finish_obj)
@@ -712,14 +888,56 @@ while running:
             player.respawn()
             game_over = False
 
-    update_game_logic(player, campfires, platforms, portals, camera, finish_obj)
+    if not game_paused:
+        update_game_logic(player, campfires, platforms, portals, camera, finish_obj)
+    
+    draw_screen()
 
-    render_game(window, player, labels, finish_obj, camera, 
-                dev_mode, all_debug_objects, game_over, game_won)
+    if game_paused:
+        pause_blur_scale = min(MAX_PAUSE_BLUR, pause_blur_scale + PAUSE_BLUR_SPEED)
+        w, h = window.get_size()
+        small = transform.smoothscale(window, (max(1, int(w / pause_blur_scale)), max(1, int(h / pause_blur_scale))))
+        blurred = transform.smoothscale(small, (w, h))
 
-    player.draw_face(window, camera)
+        window.blit(blurred, (0, 0))
+        draw_pause_menu(window)
+    else:
+        pause_blur_scale = 1.0
+
+
+
+    # ------------------------ Трясіння ----------------------------
+    # shake_x = 0
+    # shake_y = 0
+
+    # if periodic_shake_enabled:
+    #     shake_tick += 1
+    #     if shake_tick % shake_period == 0:
+    #         shake_x = random.randint(-shake_intensity, shake_intensity)
+    #         shake_y = random.randint(-shake_intensity, shake_intensity)
+
+    # actual_win_w, actual_win_h = window.get_size()
+    # if post_surf.get_size() != (actual_win_w, actual_win_h):
+    #     post_surf = Surface((actual_win_w, actual_win_h))
+
+    # if filter_enabled and pixel_scale > 1.0:
+    #     low_res_w = max(1, int(WINDOW_WIDTH / pixel_scale))
+    #     low_res_h = max(1, int(WINDOW_HEIGHT / pixel_scale))
+        
+    #     small_surf = transform.smoothscale(game_buffer, (low_res_w, low_res_h))
+    #     transform.smoothscale(small_surf, (actual_win_w, actual_win_h), post_surf)
+    # else:
+    #     transform.scale(game_buffer, (actual_win_w, actual_win_h), post_surf)
+
+    # window.fill((0, 0, 0))
+    # window.blit(post_surf, (shake_x, shake_y))
+
 
     display.update()
     clock.tick(FPS)
+if return_to_menu:
+    subprocess.Popen([sys.executable, "START_HERE.py"])
 quit()
+
+
 

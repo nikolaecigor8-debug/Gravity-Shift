@@ -2,6 +2,219 @@ import pygame
 import random
 import math
 
+# Кольори UI
+UI_BG_COLOR = (0, 0, 0, 150)
+UI_DEV_BG_COLOR = (0, 0, 0, 180)
+UI_HELP_BG_COLOR = (0, 0, 50, 200)
+OVERLAY_GAME_OVER = (100, 0, 0, 180)
+OVERLAY_WIN = (0, 100, 0, 180)
+
+
+
+class PlayerInfoBox:
+    def __init__(self, scale, font_name="Consolas"):
+        self.scale = 0.0  # Початковий нуль, щоб перший кадр точно прорахував усе
+        self.font_name = font_name
+        self.font = None
+        
+        # Змінні для відстеження змін геймплею
+        self.last_control = ""
+        self.last_preset = ""
+        self.last_style = ""
+        self.last_gravity = None
+        self.last_track = ""
+        
+        self.surface = None
+
+    def update_and_draw(self, screen, player, current_track_name):
+        win_w, win_h = screen.get_size()
+        current_scale = win_h / 480.0
+        
+        # 1. Готуємо дані для перевірки
+        gravity_name, p_color = player.get_gravity_info()
+        clean_music_name = current_track_name.rsplit('.', 1)[0]
+        if len(clean_music_name) > 15:
+            clean_music_name = clean_music_name[:12] + "..."
+            
+        # 2. Перевіряємо ресайз вікна АБО зміни у грі
+        if (self.surface is None or self.scale != current_scale or
+            self.last_control != player.control_mode or
+            self.last_preset != player.current_preset or
+            self.last_style != player.skin_styles.get(player.current_preset, 'ghost') or
+            self.last_gravity != player.gravity_vec or
+            self.last_track != clean_music_name):
+            
+            self.scale = current_scale
+            self.last_control = player.control_mode
+            self.last_preset = player.current_preset
+            self.last_style = player.skin_styles.get(player.current_preset, 'ghost')
+            self.last_gravity = player.gravity_vec.copy() if hasattr(player.gravity_vec, 'copy') else player.gravity_vec
+            self.last_track = clean_music_name
+            
+            # --- ОНОВЛЮЄМО РОЗМІР ШРИФТУ ТА ПЛАШКИ ---
+            font_size = int(18 * self.scale)
+            self.font = pygame.font.SysFont(self.font_name, font_size, bold=True)
+            
+            margin = int(15 * self.scale)
+            padding = int(12 * self.scale)
+            line_h = int(22 * self.scale)
+            box_w = int(260 * self.scale)
+            
+            p_lines = [
+                f"Керування: {self.last_control}",
+                f"Скін:  {self.last_preset}",
+                f"Стиль: {self.last_style}",
+                f"Гравітація: ",
+                f"Радіо: {self.last_track}"
+            ]
+            
+            box_h = padding * 1.6 + len(p_lines) * line_h
+            self.surface = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            self.surface.fill(UI_BG_COLOR)
+            
+            # Рендеринг тексту з новим розміром шрифту
+            for i, line in enumerate(p_lines):
+                txt = self.font.render(line, True, (255, 255, 255))
+                self.surface.blit(txt, (padding, padding + i * line_h))
+                
+            prefix_w = self.font.size("Гравітація: ")[0]
+            grav_txt = self.font.render(gravity_name, True, p_color)
+            self.surface.blit(grav_txt, (padding + prefix_w, padding + 3 * line_h))
+            
+        # 3. Вивід на екран
+        margin_draw = int(15 * current_scale)
+        screen.blit(self.surface, (margin_draw, margin_draw))
+
+class DevInfoBox:
+    def __init__(self, scale, font_name="Consolas"):
+        self.scale = 0.0
+        self.font_name = font_name
+        self.font = None
+        self.surface = None
+        self.last_state = None
+        # Оновлення не кожен кадр а через проміжок
+        self.frame_tick = 0
+        self.update_interval = 6
+
+    def update_and_draw(self, screen, player, camera, win_h):
+        current_scale = win_h / 480.0
+        
+        # --- ДОПОВНЕННЯ: Рахуємо кадри ---
+        self.frame_tick += 1
+
+        m_pos = pygame.mouse.get_pos()
+        world_m_x = m_pos[0] - camera.camera.x
+        world_m_y = m_pos[1] - camera.camera.y
+        focus_status = f"({int(camera.focus_point[0])}, {int(camera.focus_point[1])})" if camera.focus_point else "Гравець"
+        
+        current_state = (int(player.rect.x), int(player.rect.y), int(world_m_x), int(world_m_y), focus_status, player.respawn_pos, current_scale)
+        
+        # --- ДОПОВНЕННЯ: Модифікуємо лише умову if ---
+        # Текст оновиться тільки якщо поверхні ще немає АБО якщо підійшла черга по кадрах І стан дійсно інший
+        if self.surface is None or (self.frame_tick % self.update_interval == 0 and self.last_state != current_state):
+            self.last_state = current_state
+            self.scale = current_scale
+            
+            # ... далі весь твій код рендерингу (dev_lines, створення поверхні, blit тексту) лишається БЕЗ ЗМІН ...
+            font_size = int(18 * self.scale)
+            self.font = pygame.font.SysFont(self.font_name, font_size, bold=True)
+            
+            padding = int(12 * self.scale)
+            line_h = int(22 * self.scale)
+            box_w = int(365 * self.scale)
+            
+            dev_lines = [
+                "--- РЕЖИМ РОЗРОБНИКА ---",
+                f"Гравець X:{current_state[0]} Y:{current_state[1]}",
+                f"Миша   X:{current_state[2]} Y:{current_state[3]}",
+                f"Фокус камери: {focus_status}",
+                f"[1]-Down|[2]-Up|[3]-Left|[4]-Right",
+                f"Spawn: {player.respawn_pos}"
+            ]
+            
+            box_h = padding * 1.6 + len(dev_lines) * line_h
+            self.surface = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            self.surface.fill(UI_DEV_BG_COLOR)
+            
+            for i, line in enumerate(dev_lines):
+                if i == 0: t_color = (255, 255, 0)
+                elif i == 3: t_color = (255, 215, 0)
+                elif i == 2: t_color = (100, 200, 255)
+                elif i == 1: t_color = (150, 255, 150)
+                else: t_color = (255, 255, 255)
+                
+                txt = self.font.render(line, True, t_color)
+                self.surface.blit(txt, (padding, padding + i * line_h))
+                
+        # Малювання готової плашки (теж лишається без змін, виконується кожен кадр)
+        margin_draw = int(15 * current_scale)
+        y_pos = win_h - self.surface.get_height() - margin_draw
+        screen.blit(self.surface, (margin_draw, y_pos))
+
+class HelpInfoBox:
+    def __init__(self, scale, font_name="Consolas"):
+        self.scale = 0.0
+        self.font_name = font_name
+        self.font = None
+        self.surface = None
+
+    def draw(self, screen, win_w, player):
+        win_h = screen.get_size()[1]
+        current_scale = win_h / 550.0
+        
+        if self.surface is not None and self.scale != current_scale:
+            self.surface = None
+
+        if self.surface is None:
+            self.scale = current_scale
+            
+            # --- ОНОВЛЮЄМО РОЗМІР ШРИФТУ ТА ПЛАШКИ ---
+            font_size = int(18 * self.scale)
+            self.font = pygame.font.SysFont(self.font_name, font_size, bold=True)
+            
+            padding = int(12 * self.scale)
+            line_h = int(22 * self.scale)
+            box_w = int(250 * self.scale)
+
+            current_mode = player.control_mode.lower()
+            if "wasd" in current_mode and "arrows" in current_mode: mode_display = "Обидва  "
+            elif "wasd" in current_mode: mode_display = "WASD    "
+            elif "arrows" in current_mode: mode_display = "Стрілки "
+            else: mode_display = "Обидва  "
+
+            help_lines = [
+                "  КЕРУВАННЯ  ",
+                "-------------",
+                f"{mode_display} - Рух",
+                "SPACE    - Стрибок",
+                "TAB      - Скін",
+                "F↓L↓| M  - Пресет",
+                "SHIFT    - Зависання",
+                "R        - Респавн",
+                "F11      - Весь екран",
+                "F9       - Сховати UI",
+                "ESCAPE   - Розробник:",
+                "LKM      - Креслення",
+                "PKM      - Видобути",
+                "P        - Режим камери",
+                "(-) (+)  - Зміна музики ",
+                "CTRL     - Сховати"
+            ]
+
+            box_h = padding * 1.6 + len(help_lines) * line_h
+            self.surface = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            self.surface.fill(UI_HELP_BG_COLOR)
+
+            for i, line in enumerate(help_lines):
+                t_c = (100, 200, 255) if i < 2 else (255, 255, 255)
+                txt = self.font.render(line, True, t_c)
+                self.surface.blit(txt, (padding, padding + i * line_h))
+
+        margin_draw = int(15 * current_scale)
+        x_pos = win_w - self.surface.get_width() - margin_draw
+        screen.blit(self.surface, (x_pos, margin_draw))
+
+
 def random_color():
     # Випадковий колір для хаосу-пресета гравця.
     return (random.randint(1, 225), random.randint(1, 225), random.randint(1, 225))
@@ -43,15 +256,15 @@ class DebugSprite(pygame.sprite.Sprite):
         screen.blit(bg_surface, bg_rect)
 
 
-class Player(pygame.sprite.Sprite):
+class Player(pygame.sprite.Sprite): 
     GRAVITY_NAMES = {
         (0, 1): "ВНИЗ",
         (0, -1): "ВГОРУ",
         (-1, 0): "ВЛІВО",
-        (1, 0): "ВПРАВО"
-    }
-
-    CONTROL_MODES = ("both", "arrows_only", "wasd_only")
+        (1, 0): "ВПРАВО"}
+    CONTROL_MODES = ("both", 
+                     "arrows_only", 
+                     "wasd_only")
     GRAVITY_ACTIONS = {
         (0, 1): ("up", "down"),
         (0, -1): ("down", "up"),
@@ -72,14 +285,19 @@ class Player(pygame.sprite.Sprite):
         self.jump_power    = 15   # Сила стрибка(повштовх)
         self.gravity_force = 0.7  # Гравітація  (тяжіння)
         self.acceleration  = 1.0  # Прискорення (розгін)
-        self.friction      = 0.4  # Зупинка     (тертя)
-        self.color = (0, 0, 0)    # Колір адаптивний тому тут по нулям. 
+        self.friction      = 0.85  # Зупинка     (тертя)
+        self.color = (0, 0, 0)    # Колір адаптивний тому тут по нулям.
+        self.idle_timer = 0
+        self.idle_threshold = random.randint(180, 300) # Час в кадрах до анімки
+        self.eye_lift = 0.0
+        self.jump_face_lift = 0
+        self.brow_alpha = 0
+        self.visual_tick = 0
         # Напрям гравітації: (x,y). 
         # Це векторна магія: (0,1) тягне вниз, (0,-1) — до стелі. Вектор визначає, куди ми падаємо.
         self.gravity_vec = pygame.Vector2(0, 1)
 
         # --- ФІЗИКА ---
-        self.vel = pygame.Vector2(0, 0)
         self.on_ground = False
         self.is_on_ice = False
         self.is_dead = False
@@ -89,6 +307,10 @@ class Player(pygame.sprite.Sprite):
         self.base_image = pygame.Surface((self.size, self.size))
         self.base_image.fill((0, 200, 255))
         self.image = self.base_image.copy()
+
+        # --- СИСТЕМА ШЛЕЙФУ (ТІНІ) ---
+        self.ghost_positions = []  # Список для зберігання копій гравця
+        self.max_ghosts = 5        # Скільки "привидів" буде йти за гравцем
 
         # --- СИСТЕМА КОЛЬОРІВ ---
         # Кожному напрямку — свій колір. Це допомагає орієнтуватися, куди зараз тягне.
@@ -119,15 +341,30 @@ class Player(pygame.sprite.Sprite):
             },
             "random": random_preset()
         }
+        self.skin_styles = {
+            # "classic": "classic", Не треба бо це вже = за умовсчанням, воно існує через можливість кастомізації
+            "cyber": "matrix_flow",
+            "MKin": "noise_dust",
+            "Sad =(": "liquid_lava",
+            "random": "crystalline_shards"
+        }
         self.current_preset = "classic"
-        self.streetfly_flash = False # НЕ СКАЖУ!!!
 
+        # --- STREETFLY ---
+        self.streetfly_flash = False # НЕ СКАЖУ!!!
+        self.streetfly_cooldown = 300        # Кулдаун у мілісекундах (1 секунда)
+        self.last_streetfly_time = -300      # Час останнього використання
+        self.streetfly_ready_notified = True  # Прапорець, щоб кубик не блінкав сам по собі при старті гри
+
+        self.is_rare_dust = False
         self.update_color()
 
         # Режими керування: для тих, хто звик до стрілочок, і для WASD. (arrows_only, wasd_only, both)
         self.control_mode = "both"
         self.respawn_pos = (x, y) # Координати останнього сейвпоінту
+        self.last_campfire_id = 0
 
+  # --- конфігурації та геттері ---
     def set_skin(self, new_color):
         self.color = new_color
         self.image.fill(self.color)
@@ -136,9 +373,31 @@ class Player(pygame.sprite.Sprite):
         """Динамічне перемикання скінів по колу через словник presets."""
         skin_names = list(self.presets.keys())
         self.current_preset = skin_names[(skin_names.index(self.current_preset) + 1) % len(skin_names)]
+        self.is_rare_dust = (random.randint(1, 7) == 1)
         self.update_color()
         print(f"Поточний скін: {self.current_preset}")
 
+    def switch_control_mode(self):
+        """Циклічне перемикання між режимами керування. Для тих, хто не може визначитися."""
+        current_index = self.CONTROL_MODES.index(self.control_mode)
+        self.control_mode = self.CONTROL_MODES[(current_index + 1) % len(self.CONTROL_MODES)]
+        print(f"Поточний режим керування: {self.control_mode}")
+
+    def set_gravity(self, x, y):
+        """Міняємо вектор тяжіння та перефарбовуємо гравця."""
+        self.gravity_vec.update(x, y)
+        if self.vel.length() > 12:
+            self.vel.scale_to_length(12)
+        self.update_color()
+
+    def get_gravity_info(self):
+        """Повертає назву напрямку та поточний колір гравця для тексту."""
+        gravity_key = (int(self.gravity_vec.x), int(self.gravity_vec.y))
+        direction = self.GRAVITY_NAMES.get(gravity_key, "???:")
+        color = self.presets[self.current_preset].get(gravity_key, (255, 255, 255))
+        return direction, color
+
+  # --- обробки вводу ---
     def read_input(self, keys):
         """Знає які клавіші - керування, залежно від вибраного режиму керування."""
         if self.control_mode == "arrows_only":
@@ -164,74 +423,31 @@ class Player(pygame.sprite.Sprite):
 
     def handle_input(self):
         move_left, move_right, move_up, move_down = self.read_input(pygame.key.get_pressed())
-        friction_value = 0.95 if self.is_on_ice else self.friction
+        # МІНІФІКС: Раніше гравець завжди зупинявся швидко. Тепер поверхня має більше варіантів
+        # friction_value = 0.95 if self.is_on_ice else self.friction
+        if not self.on_ground:
+            # У повітрі — вільний політ
+            friction_value = self.friction 
+        elif self.is_on_ice:
+            # На лабораторії — ковзання
+            friction_value = 0.90
+        else:
+            # На звичайних блоках — гальмування
+            friction_value = 0.6
 
         if self.gravity_vec.y != 0: # Рух по X (якщо гравітація вертикальна)
             self.apply_axis_motion("x", move_left, move_right, friction_value)
         else:                       # Рух по Y (якщо гравітація горизонтальна)
-            self.apply_axis_motion("y", move_up, move_down, self.friction)
+            self.apply_axis_motion("y", move_up, move_down, friction_value)
+
+        # if self.gravity_vec.y != 0: 
+        #     self.apply_streetfly("x", move_left, move_right, friction_value)
+        # else:
+        #     self.apply_streetfly("y", move_up, move_down, friction_value)
 
         self.apply_jump_and_fall(move_left, move_right, move_up, move_down)
 
-    def apply_axis_motion(self, axis, negative_pressed, positive_pressed, friction):
-        """Прораховує вже передбачені вісі для рівного та фіксованого pyxy."""
-        velocity = getattr(self.vel, axis)
-        if negative_pressed:
-            velocity -= self.acceleration
-        elif positive_pressed:
-            velocity += self.acceleration
-        else:
-            velocity *= friction
-
-        max_speed = self.speed
-        setattr(self.vel, axis, max(-max_speed, min(max_speed, velocity)))
-
-    def apply_jump_and_fall(self, move_left, move_right, move_up, move_down):
-        gravity_tuple = (int(self.gravity_vec.x), int(self.gravity_vec.y))
-        jump_key, fall_key = self.GRAVITY_ACTIONS.get(gravity_tuple, (None, None))
-        key_map = {
-            "left": move_left,
-            "right": move_right,
-            "up": move_up,
-            "down": move_down
-        }
-
-        jump_press = key_map.get(jump_key, False)
-        fall_press = key_map.get(fall_key, False)
-
-        if jump_press and self.on_ground:
-            jump_velocity = -self.gravity_vec * self.jump_power
-            if self.gravity_vec.y != 0:
-                self.vel.y = jump_velocity.y
-            else:
-                self.vel.x = jump_velocity.x
-            self.on_ground = False
-
-        self.is_fast_falling = fall_press
-
-    def switch_control_mode(self):
-        """Циклічне перемикання між режимами керування. Для тих, хто не може визначитися."""
-        current_index = self.CONTROL_MODES.index(self.control_mode)
-        self.control_mode = self.CONTROL_MODES[(current_index + 1) % len(self.CONTROL_MODES)]
-        print(f"Поточний режим керування: {self.control_mode}")
-
-    def set_gravity(self, x, y):
-        """Міняємо вектор тяжіння та перефарбовуємо гравця."""
-        self.gravity_vec.update(x, y)
-        if self.vel.length() > 12:
-            self.vel.scale_to_length(12)
-        self.update_color()
-
-    def get_active_platforms(self, platforms):
-        # Головна користа фішка гри. Не прораховувати колізії об'єктів які поза екраном
-        # (Для гравця різниця не помітна а для пк шанс не закипіти від всіх об'єктів світу)
-        visible_area = self.rect.inflate(9000, 600)
-        return [p for p in platforms if p.rect.colliderect(visible_area)]
-
-    def limit_speed(self, max_speed):
-        if self.vel.length() > max_speed:
-            self.vel.scale_to_length(max_speed)
-
+  # --- фізика та рух ---
     def apply_physics(self, platforms, portals, world_w, world_h):
         """Ядро гри. Розрахунок фізики та колізій у великому світі."""
         self.on_ground = False
@@ -253,6 +469,30 @@ class Player(pygame.sprite.Sprite):
         self.pos = pygame.Vector2(self.rect.topleft)
         for portal in portals:
             portal.check_collision(self)
+
+        # --- ЛОГІКА ОЧІКУВАННЯ ---  (для анімації обличчя)
+        if self.vel.length() < 0.2:
+            self.idle_timer += 1
+        else:
+            if self.idle_timer > 0:
+                self.idle_threshold = random.randint(240, 390)
+            self.idle_timer = 0
+            self.eye_lift = max(0, self.eye_lift - 0.5)
+            self.brow_alpha = max(0, self.brow_alpha - 15)
+
+        if self.idle_timer > self.idle_threshold:
+            if self.eye_lift < 2:
+                self.eye_lift += 0.066
+            self.brow_alpha = min(255, self.brow_alpha + 10)
+        
+        # Стиль гравця буде унікальним для classic
+        if self.current_preset == "classic" and  self.vel.length() > 0.5: 
+            self.ghost_positions.append((self.rect.copy(), self.image.copy()))
+            if len(self.ghost_positions) > self.max_ghosts:
+                self.ghost_positions.pop(0)
+        else:
+            if self.ghost_positions:
+                self.ghost_positions.pop(0)
 
     def move_axis(self, axis, platforms, limit):
         # Раніше це було прямов в apply_physics, але виніс в окрему функцію, 
@@ -293,6 +533,114 @@ class Player(pygame.sprite.Sprite):
             if not self.rect.colliderect(wall.rect):
                 continue
             self.resolve_platform_collision(wall, axis, delta)
+
+    def apply_axis_motion(self, axis, negative_pressed, positive_pressed, friction):
+        """Прораховує рух по осі з урахуванням обмежень бігу та плавного згасання спринту."""
+        velocity = getattr(self.vel, axis)
+        max_speed = self.speed
+
+        is_sprinting = abs(velocity) > max_speed
+
+        if negative_pressed:
+            if is_sprinting and velocity > 0:
+                velocity -= self.acceleration
+            elif velocity > -max_speed:
+                velocity = max(-max_speed, velocity - self.acceleration)
+                
+        elif positive_pressed:
+            if is_sprinting and velocity < 0:
+                velocity += self.acceleration
+            elif velocity < max_speed:
+                velocity = min(max_speed, velocity + self.acceleration)
+                
+        else:
+            if not is_sprinting:
+                velocity *= friction
+
+        if abs(velocity) > max_speed:
+            sprint_decay = 0.92
+            velocity *= sprint_decay
+
+        if abs(velocity) < 0.05:
+            velocity = 0.0
+
+        setattr(self.vel, axis, velocity)
+        # Поглянути яка швидкість зараз за x та y
+        # print(self.vel)      
+
+    def apply_jump_and_fall(self, move_left, move_right, move_up, move_down):
+        gravity_tuple = (int(self.gravity_vec.x), int(self.gravity_vec.y))
+        jump_key, fall_key = self.GRAVITY_ACTIONS.get(gravity_tuple, (None, None))
+        key_map = {
+            "left": move_left,
+            "right": move_right,
+            "up": move_up,
+            "down": move_down
+        }
+
+        keys = pygame.key.get_pressed()
+        jump_press = key_map.get(jump_key, False) or keys[pygame.K_SPACE]
+        fall_press = key_map.get(fall_key, False)
+
+        if jump_press and self.on_ground:
+            jump_velocity = -self.gravity_vec * self.jump_power
+            if self.gravity_vec.y != 0:
+                self.vel.y = jump_velocity.y
+            else:
+                self.vel.x = jump_velocity.x
+            self.on_ground = False
+            self.jump_face_lift = 6
+
+        self.is_fast_falling = fall_press
+
+    def apply_streetfly(self):
+        """Механіка Streetfly: Анулює падіння + дає спринт, якщо гравець рухається."""
+        # Перевірка на кулдаун
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_streetfly_time < self.streetfly_cooldown:
+            return  # Здібність ще перезаряджається, ігнорує натискання
+
+        move_left, move_right, move_up, move_down = self.read_input(pygame.key.get_pressed())
+        sprint_power = 24 # Швидкість спринту
+        activated = False 
+
+        # --- АНУЛЮВАННЯ ПАДІННЯ ---
+        if self.vel.dot(self.gravity_vec) > 0.1:
+            self.vel -= self.vel.dot(self.gravity_vec) * self.gravity_vec
+            self.streetfly_flash = True
+            # activated = True
+
+        # --- СПРИНТ ЗА НАМІРОМ ГРАВЦЯ --- (перевіряються натиснуті кнопки)
+        if self.gravity_vec.y != 0: # ------- Вертикальна гравітація (Вниз/Вгору)
+            if move_right and not move_left:
+                self.vel.x = sprint_power
+                self.streetfly_flash = True
+                activated = True
+            elif move_left and not move_right:
+                self.vel.x = -sprint_power
+                self.streetfly_flash = True
+                activated = True
+
+        else: # ---------------------------- Горизонтальна гравітація (Вліво/Вправо)
+            if move_down and not move_up:
+                self.vel.y = sprint_power
+                self.streetfly_flash = True
+                activated = True
+            elif move_up and not move_down:
+                self.vel.y = -sprint_power
+                self.streetfly_flash = True
+                activated = True
+
+        # Спалах спрацює, якщо було анульовано падіння АБО активовано спринт
+        # Якщо хоча б одна з умов спрацювала — запускає таймер кулдауну
+        if activated:
+            self.streetfly_flash = True
+            self.last_streetfly_time = current_time
+            self.streetfly_ready_notified = False
+
+    def limit_speed(self, max_speed):
+        if self.vel.length() > max_speed:
+            self.vel.scale_to_length(max_speed)
 
     def resolve_platform_collision(self, wall, axis, delta):
         ''' Багато обраховуюча функція прорахунків заткнень з різними типами платформ. 
@@ -337,15 +685,49 @@ class Player(pygame.sprite.Sprite):
         else:
             self.vel.y = 0
 
-    def draw(self, screen, camera_offset):
-        img_rect = self.image.get_rect(center=self.rect.center)
-        screen.blit(self.image, img_rect.move(camera_offset))
+    def get_active_platforms(self, platforms):
+        # Головна користа фішка гри. Не прораховувати колізії об'єктів які поза екраном
+        # (Для гравця різниця не помітна а для пк шанс не закипіти від всіх об'єктів світу)
+        visible_area = self.rect.inflate(9000, 600)
+        return [p for p in platforms if p.rect.colliderect(visible_area)]
 
+  # --- ігрові події ---
+    def respawn(self):
+        """Повернення додому до багаття, коли рівень виявився сильнішим за тебе..."""
+        self.rect.topleft = self.respawn_pos
+        self.vel = pygame.Vector2(0, 0)
+        self.set_gravity(0, 1)
+        self.is_dead = False
+
+  # --- візуал ---
     def update_color(self):
-        """Береться колір із вибраного пресета залежно від того, куди є гравітація."""
+        """Оновлює текстуру залежно від кольору + стилю."""
         gravity_key = (int(self.gravity_vec.x), int(self.gravity_vec.y))
-        color = self.presets[self.current_preset].get(gravity_key, (255, 255, 255))
-        self.base_image.fill(color)
+        current_colors = self.presets.get(self.current_preset, self.presets["classic"])
+        self.color = current_colors.get(gravity_key, (255, 255, 255))
+        current_style = self.skin_styles.get(self.current_preset)
+
+        self.base_image = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
+
+        # --- Малювання ---
+        if current_style == "noise_dust":
+            if self.is_rare_dust:
+                TextureFactory.draw_noise_dust_none(self.base_image, self.color, gravity_key)
+            else:
+                TextureFactory.draw_noise_dust(self.base_image, self.color, gravity_key)
+
+        elif current_style == "matrix_flow":
+            TextureFactory.draw_matrix_flow(self.base_image, self.color, gravity_key, pygame.time.get_ticks())
+
+        elif current_style == "crystalline_shards":
+            TextureFactory.draw_crystalline_shards(self.base_image, self.color, gravity_key)
+
+        elif current_style == "liquid_lava":
+            TextureFactory.draw_liquid_lava(self.base_image, self.color, gravity_key, pygame.time.get_ticks())
+
+        else:
+            # Якщо стиль не заданий - звичайний квадрат
+            self.base_image.fill(self.color)
         self.image = self.base_image.copy()
 
     def update_visuals(self):
@@ -361,36 +743,55 @@ class Player(pygame.sprite.Sprite):
         else:
             self.image = self.base_image.copy()
 
+        # --- АВТОМАТИЧНИЙ БЛІК ГОТОВНОСТІ ---
+        current_time = pygame.time.get_ticks()
+        if not self.streetfly_ready_notified:
+            if current_time - self.last_streetfly_time >= self.streetfly_cooldown:
+                self.streetfly_flash = True
+                self.streetfly_ready_notified = True
+
         # ЕФЕКТ СТРІТФЛАЙ: короткий білий спалах.
         if self.streetfly_flash:
             self.image.fill((255, 255, 255))
             self.streetfly_flash = False
+        self.jump_face_lift = max(0, self.jump_face_lift - 0.2)
 
-    def apply_streetfly(self):
-        """Механіка Streetfly: обнуляє швидкість падіння.
-            Тепер стрибок не переривається a pyx продовжиться ."""
-        if self.vel.dot(self.gravity_vec) > 0:
-            self.vel -= self.vel.dot(self.gravity_vec) * self.gravity_vec
-            self.streetfly_flash = True
+        # Кадрування стиля гравця
+        current_style = self.skin_styles.get(self.current_preset)
+        # Залежно від скіна, різна частота
+        if   current_style == "matrix_flow":
+            self.frame = 30
+        elif current_style == "liquid_lava":
+            self.frame = 10
+        elif current_style == "noise_dust":
+            self.frame = 40
+        # Саме оновлення
+        if current_style == "matrix_flow" or current_style == "liquid_lava" or current_style == "noise_dust":
+            self.visual_tick += 1
+            # Оновлення кожні frame кадрів
+            if self.visual_tick >= self.frame:
+                self.visual_tick = 0
+                self.update_color()
 
-    def respawn(self):
-        """Повернення додому до багаття, коли рівень виявився сильнішим за тебе..."""
-        self.rect.topleft = self.respawn_pos
-        self.vel = pygame.Vector2(0, 0)
-        self.set_gravity(0, 1)
-        self.is_dead = False
+  # --- рендеринг ---
+    def draw(self, screen, camera_offset):
+        if self.current_preset == "classic":
+            for i, (ghost_rect, ghost_img) in enumerate(self.ghost_positions):
+                alpha = int((i + 1) * (180 / len(self.ghost_positions)))
+                
+                temp_img = ghost_img.copy()
+                temp_img.set_alpha(alpha)
+                
+                img_rect = temp_img.get_rect(center=ghost_rect.center)
+                screen.blit(temp_img, img_rect.move(camera_offset))
 
-    def get_gravity_info(self):
-        """Повертає назву напрямку та поточний колір гравця для тексту."""
-        gravity_key = (int(self.gravity_vec.x), int(self.gravity_vec.y))
-        direction = self.GRAVITY_NAMES.get(gravity_key, "???:")
-        color = self.presets[self.current_preset].get(gravity_key, (255, 255, 255))
-        return direction, color
+        img_rect = self.image.get_rect(center=self.rect.center)
+        screen.blit(self.image, img_rect.move(camera_offset))
 
     def draw_face(self, window, camera):
         """Універсальне малювання обличчя. 
             Логіка адаптується під будь-який вектор гравітації (gx, gy).
-             + адаптивна пропорціонування (Fast Fall)."""
+             + адаптивна пропорціонування (Fast Fall), анімка очікування, руху"""
         gx, gy = int(self.gravity_vec.x), int(self.gravity_vec.y)
         t = pygame.time.get_ticks() / 1000
         
@@ -403,19 +804,32 @@ class Player(pygame.sprite.Sprite):
 
         cx = self.rect.x + camera.camera.x + self.size // 2
         cy = self.rect.y + camera.camera.y + self.size // 2
+        face_jump_offset = self.jump_face_lift
 
+        if gy != 0:
+            move_velocity = self.vel.x   # вертикальна гравітація
+        else:
+            move_velocity = self.vel.y   # горизонтальна гравітація
+
+        # НЕДОФІКС: Був момент коли при fast fall визначали одну сторону, 
+        #          при розтягенні починалася не така математика і обличчя вилітало за гравця
+        # side_shift = max(-8, min(8, move_velocity * 1.1)) * sw
+        shift_scale = sw if gy != 0 else sh
+        side_shift = max(-8, min(8, move_velocity * 1.1)) * shift_scale
+        
         speed_factor = min(self.vel.length() / 20, 1.0)
         breath_e = math.sin(t * 3) * 1
         breath_m = math.sin((t - 0.07) * 3) * 1
         dynamic_stretch = min(self.vel.length() * 0.4, 10)
 
-        # Пропорції обличчя (гримаса)
-        eye_d_n     = 11     # Відстань між очима (вбік)
+        eye_d_n     = 10.5   # Відстань між очима (вбік)
         eye_depth   = -13    # Зміщення очей (вгору/вперед відносно обличчя)
-        mouth_depth = 6      # Зміщення рота (вниз/назад відносно обличчя)
+        mouth_depth = 6      # Зміщення рота (вниз/назад відносно обличчя)     
 
         base_eye_s = (self.size // 5) + int(4 * speed_factor)
-        base_m_len = 37
+        
+        mouth_narrowness = max(0.4, 1.0 - (abs(move_velocity) / 25))
+        base_m_len = 35 * mouth_narrowness 
         base_m_thick = 6 + dynamic_stretch
 
         ew, eh = int(base_eye_s * sw), int(base_eye_s * sh)
@@ -424,22 +838,30 @@ class Player(pygame.sprite.Sprite):
             mw_scr, mh_scr = int(base_m_len * sw), int(base_m_thick * sh)
             eye_dist = int(eye_d_n * sw)
             
+            left_eye_dist = eye_dist
+            right_eye_dist = eye_dist
+            if move_velocity > 1:
+                left_eye_dist *= 0.6
+            elif move_velocity < -1:
+                right_eye_dist *= 0.6
+
             e_offset_fix = (base_eye_s - (self.size // 5)) * sh
             m_offset_fix = (dynamic_stretch / 2) * sh
             
             e_fwd = (eye_depth * sh + breath_e * sh - e_offset_fix)
             m_fwd = (mouth_depth * sh + breath_m * sh - m_offset_fix)
 
-            e_y = cy + e_fwd * gy
+            e_y = cy + e_fwd * gy - face_jump_offset * gy
             draw_e_y = e_y if gy == 1 else e_y - eh
+            
             eyes_pos = [
-                (cx - eye_dist - ew // 2, draw_e_y, ew, eh), # Ліве
-                (cx + eye_dist - ew // 2, draw_e_y, ew, eh)  # Праве
+                (cx - left_eye_dist - ew // 2 + side_shift, draw_e_y, ew, eh),   # Ліве
+                (cx + right_eye_dist - ew//2 + side_shift, draw_e_y - (self.eye_lift * gy), ew, eh) # ПРАВЕ
             ]
             
-            m_y = cy + m_fwd * gy
+            m_y = cy + m_fwd * gy - face_jump_offset * gy
             draw_m_y = m_y if gy == 1 else m_y - mh_scr
-            mouth_rect = (cx - mw_scr // 2, draw_m_y, mw_scr, mh_scr)
+            mouth_rect = (cx - mw_scr // 2 + side_shift, draw_m_y, mw_scr, mh_scr)
 
         else:  # ГОРИЗОНТАЛЬНА ГРАВІТАЦІЯ (Вліво / Вправо)
             mw_scr, mh_scr = int(base_m_thick * sw), int(base_m_len * sh)
@@ -451,26 +873,74 @@ class Player(pygame.sprite.Sprite):
             e_fwd = (eye_depth * sw + breath_e * sw - e_offset_fix)
             m_fwd = (mouth_depth * sw + breath_m * sw - m_offset_fix)
 
-            e_x = cx + e_fwd * gx
+            e_x = cx + e_fwd * gx - face_jump_offset * gx
             draw_e_x = e_x if gx == 1 else e_x - ew
+
             eyes_pos = [
-                (draw_e_x, cy - eye_dist - eh // 2, ew, eh), # Верхнє
-                (draw_e_x, cy + eye_dist - eh // 2, ew, eh)  # Нижнє
+                (draw_e_x, cy - eye_dist - eh // 2 + side_shift, ew, eh),   
+                (draw_e_x - (self.eye_lift * gx), cy + eye_dist - eh//2 + side_shift, ew, eh) 
             ]
             
-            m_x = cx + m_fwd * gx
+            m_x = cx + m_fwd * gx - face_jump_offset * gx
             draw_m_x = m_x if gx == 1 else m_x - mw_scr
-            mouth_rect = (draw_m_x, cy - mh_scr // 2, mw_scr, mh_scr)
+            mouth_rect = (draw_m_x, cy - mh_scr // 2 + side_shift, mw_scr, mh_scr)
 
+        # Малювання
         for eye in eyes_pos:
             pygame.draw.rect(window, dark_color, eye)
+
+        # Брова
+        if self.brow_alpha > 0:
+            b_width = (int(ew * 1.5) if gy != 0 else int(eh * 1.5)) + 1
+            b_height = max(1, int(2 * (sh if gy != 0 else sw)))
+            brow_surf = pygame.Surface((b_width, b_height) if gy != 0 else (b_height, b_width), pygame.SRCALPHA)
+            final_color = (int(dark_color[0]), int(dark_color[1]), int(dark_color[2]), int(self.brow_alpha))
+            brow_surf.fill(final_color)
+
+            for i, (ex, ey, ew_cur, eh_cur) in enumerate(eyes_pos):
+                if gy != 0:
+                    bx = ex - (b_width - ew_cur) // 2
+                    by = ey - b_height + 1 if gy > 0 else ey + eh_cur - 1
+                    window.blit(brow_surf, (bx, by))
+                else:
+                    by = ey - (b_width - eh_cur) // 2
+                    bx = ex - b_height + 1 if gx > 0 else ex + ew_cur - 1
+                    window.blit(brow_surf, (bx, by))
+
         pygame.draw.rect(window, dark_color, mouth_rect)
+
+
+class BackgroundObject(DebugSprite):
+    """Фоновий об'єкт: без колізії, тільки візуал."""
+    def __init__(self, x, y, w, h, bg_type="lab_bg", obj_id=0):
+        super().__init__(x, y, w, h, obj_id)
+
+        self.bg_type = bg_type
+        self.image = TextureFactory.get_texture(bg_type, w, h)
+        self.rect = self.image.get_rect()
+        self.rect.topleft = (x, y)
+
+        # для анімацій
+        self.anim_timer = random.randint(0, 100)
+
+    # def update(self):
+    #     """Оновлення анімованих фонів."""
+    #     self.anim_timer += 1
+
+    #     if self.bg_type in ("toxic_bg"):
+    #         if self.anim_timer % 30 == 0:
+    #             pass
+
+    def draw(self, screen, camera_offset, dev_mode=False):
+        screen.blit(self.image, self.rect.move(camera_offset))
+        self.draw_debug(screen, dev_mode, camera_offset)
 
 
 class Platform(DebugSprite):
     COLOR_MAP = {
-        "norm": (180, 85, 75),   # Звичайна   - Марс поверхня
-        "ore": (0, 0, 0),        # Звичайна   - Марс камінь/руда (йому байдуже на колір на заводі все є)
+        "norm": (180, 85, 75),   # Звичайна   - Марсіанська поверхня
+        "ore": (0, 0, 0),        # Звичайна   - Камінь/руда (йому байдуже на колір на фабриці все є)
+        "crystal": (0, 0, 0),    # Звичайна   - Кристали    (теж ну треба, кольори саме на фабриці)
         "lab": (170, 210, 210),  # Крижана    - сіро-блакитна
         "toxic": (120, 0, 0)     # Смертельна - темно-червоний
     }
@@ -484,7 +954,6 @@ class Platform(DebugSprite):
         self.rect = self.image.get_rect()
         self.rect.topleft = (x, y)
         self.p_type = p_type
-
 
     def draw(self, screen, camera_offset, dev_mode=False):
         screen.blit(self.image, self.rect.move(camera_offset))
@@ -513,7 +982,7 @@ class GravityTrigger(DebugSprite):
         # pygame.draw.rect(screen, self.color, draw_rect)
         screen.blit(self.image, self.rect.move(camera_offset))
         self.draw_debug(screen, dev_mode, camera_offset)
-
+# \\\ логіка порталів ///
 
 class TunnelPortal(GravityTrigger):
     def __init__(self, x, y, target_gravity, w=None, h=None, color=(0, 0, 0), obj_id=0):
@@ -656,9 +1125,12 @@ class Camera:
         self.lerp_speed = 0.05
         # Точка фіксації для презентацій (якщо None — камера стежить за гравцем)
         self.focus_point = None
-
-    def apply(self, entity):
-        return entity.rect.move(self.camera.topleft)
+ 
+    @property
+    def x(self): return self.camera.x
+    
+    @property
+    def y(self): return self.camera.y
 
     def update(self, target):
         screen = pygame.display.get_surface()
@@ -694,11 +1166,8 @@ class Camera:
         self.camera.x += (ideal_x - self.camera.x) * self.lerp_speed
         self.camera.y += (ideal_y - self.camera.y) * self.lerp_speed
 
-    @property
-    def x(self): return self.camera.x
-    
-    @property
-    def y(self): return self.camera.y
+    def apply(self, entity):
+        return entity.rect.move(self.camera.topleft)
 
 
 class WorldLabel(DebugSprite):
@@ -758,7 +1227,7 @@ class ParticleSystem:
         self.count = count
         self.directions = ["top","right", "bottom", "left"]
         self.current_direction = "right"
-        # Недоробка, ідея в тому щоб помалювати перший цикл часток (вони вистрелювали разом пр першій появі)
+        # Недоробка, ідея в тому щоб помалювати перший цикл часток (вони вистрелювали разом при першій появі)
         #   однак поки це не діє
         for p in range(self.count):
             p = Particle()
@@ -773,15 +1242,6 @@ class ParticleSystem:
         next_index = (current_index + 1) % len(self.directions)
         self.current_direction = self.directions[next_index]
         print(f"Поточний напрям вітру: {self.current_direction}")
-
-    def _adjust_pool(self, target_count):
-        current_count = len(self.particles)
-        if target_count > current_count:
-            self.particles.extend([Particle() for _ in range(target_count - current_count)])
-        elif target_count < current_count:
-            inactive = [p for p in self.particles if not p.active]
-            for i in range(min(len(inactive), current_count - target_count)):
-                self.particles.remove(inactive[i])
 
     def run(self, surface, area_rect=None, side="top", color=(255, 255, 255),
             density=0.02, 
@@ -826,6 +1286,15 @@ class ParticleSystem:
         
         p.spawn(*pos, size, vel, color, fade)
  
+    def _adjust_pool(self, target_count):
+        current_count = len(self.particles)
+        if target_count > current_count:
+            self.particles.extend([Particle() for _ in range(target_count - current_count)])
+        elif target_count < current_count:
+            inactive = [p for p in self.particles if not p.active]
+            for i in range(min(len(inactive), current_count - target_count)):
+                self.particles.remove(inactive[i])
+
 
 class TextureFactory:
     _cache = {}  # Словник для збереження готових текстур
@@ -839,21 +1308,35 @@ class TextureFactory:
         surf = pygame.Surface((w, h))
         
         # Вибір алгоритму малювання
-        if name == "norm": # Платформа поверхні
+        if   name == "norm":       # Платформа поверхні
             TextureFactory._draw_sedimentary(surf, w, h, grain_size)
-        elif name == "ore": # Платформа підземна
+        elif name == "ore":        # Платформа підземна
             TextureFactory._draw_regolith(surf, w, h, grain_size)
-        elif name == "portal": # Портал тунельний
-            TextureFactory._draw_portal(surf, w, h, color, grain_size)
-        elif name == "jump_pad": # Портал пад
-            TextureFactory._draw_jump_pad(surf, w, h, color, grain_size)
-        elif name == "lab": # Платформа лаболаторії (слизька)
-            TextureFactory._draw_lab(surf, w, h, grain_size)
-        elif name == "toxic": # Платформа смерті
+        elif name == "crystal":    # Платформа кристал
+            TextureFactory._draw_crystal(surf, w, h, grain_size)
+        elif name == "lab":        # Платформа лаболаторії (слизька)
+            TextureFactory._draw_lab(surf, w, h)
+        elif name == "toxic":      # Платформа мінералів   (смерть)
             TextureFactory._draw_toxic(surf, w, h, grain_size) 
+
+        elif name == "portal":     # Портал тунельний
+            TextureFactory._draw_portal(surf, w, h, color, grain_size)
+        elif name == "jump_pad":   # Портал пад
+            TextureFactory._draw_jump_pad(surf, w, h, color, grain_size)
+
         elif name == "dynamic_bg": # Рухливий дво поверховий фон
             TextureFactory._draw_dynamic_bg(surf, w, h, grain_size)
-        else:
+
+        elif name == "lab_bg":     # Фон типу лабораторії
+            TextureFactory._draw_lab_bg(surf, w, h)
+        elif name == "cave_bg":    # Фон типу звичних     печер
+            TextureFactory._draw_cave_bg(surf, w, h, grain_size)
+        elif name == "crystal_bg": # Фон типу кристальних печер
+            TextureFactory._draw_crystal_bg(surf, w, h, grain_size)
+        elif name == "toxic_bg":   # Фон типу отруйних    печер
+            TextureFactory._draw_toxic_bg(surf, w, h, grain_size)
+
+        else:                      # Нічого з цього не підійшло
             surf.fill((200, 200, 200)) # Звичайно (помилка)
 
         # ВАЖЛИВО: оптимізація для слабких пристроїв — конвертує поверхню для швидшого рендерингу.
@@ -861,7 +1344,9 @@ class TextureFactory:
         TextureFactory._cache[key] = surf
         return surf
 
+    # ------- Конвеєри стилів ------- (кожен def відповідальний за розмальовку свого стиля для об'єктів)
 
+  # Платформи всіх призначень ---------------------
     @staticmethod
     def _draw_sedimentary(surf, w, h, gs):
         """Осадова порода: горизонтальні шари"""
@@ -884,7 +1369,31 @@ class TextureFactory:
             pygame.draw.rect(surf, color, (x, y, gs, gs))
 
     @staticmethod
-    def _draw_lab(surf, w, h, gs):
+    def _draw_crystal(surf, w, h, gs):
+        """Кристалічна порода: насичені кольори, світла рамка та вкраплення."""
+        # Пресети дрогоціностей
+        crystal_presets = [
+            (0, 160, 190),   # Глибокий ціан
+            (140, 40, 180),  # Аметистовий
+            (40, 160, 40),   # Смарагдовий
+            (210, 140, 0)    # Янтарний
+        ]
+        
+        base_color = random.choice(crystal_presets)
+        bright_color = tuple(min(255, c + 75) for c in base_color)
+        surf.fill(base_color)
+
+        pygame.draw.rect(surf, bright_color, (0, 0, w, h), 2)
+        
+        # Вкраплення всередині
+        num_sparkles = (w * h) // (gs * 60)
+        for _ in range(num_sparkles):
+            x = random.randint(3, w - 4)
+            y = random.randint(3, h - 4)
+            pygame.draw.rect(surf, bright_color, (x, y, gs // 1, gs // 1))
+
+    @staticmethod
+    def _draw_lab(surf, w, h):
         """Лабораторія: великі квадрати 4-х кольорів."""
         colors = [(180, 220, 230), (140, 180, 200), (200, 240, 255), (100, 140, 160)]
         size = 32 # Розмір плитки
@@ -898,12 +1407,14 @@ class TextureFactory:
     def _draw_toxic(surf, w, h, gs):
         """Токсичний камінь: кислотні кольори та багато плям
         Ядерна руда марсу використовується як паливо в лаболаторіях"""
-        surf.fill((30, 60, 10)) # Брудно-зелений
-        for _ in range((w * h) // (gs * 10)):
+        surf.fill((20, 60, 10)) # Брудно-зелений
+        for _ in range((w * h) // (gs * 5)):
             x, y = random.randint(0, w), random.randint(0, h)
             color = random.choice([(50, 100, 20), (100, 200, 50), (20, 40, 5)])
             pygame.draw.rect(surf, color, (x, y, gs, gs))
 
+
+  # Портали -----------------------------------------
     @staticmethod
     def _draw_portal(surf, w, h, color, gs):
         """Портали: смугасті енергетичні аномалії з дрібним шумом.\
@@ -932,9 +1443,11 @@ class TextureFactory:
             
         pygame.draw.rect(surf, color, (0, 0, w, h), 1)
 
+
+  # Фон головний ------------------------------------
     @staticmethod
     def _draw_dynamic_bg(surf, w, h, gs):
-        color_top         = (200, 110, 70)  # Рудий (Марс)
+        color_top         = (200, 110, 70) # Рудий (Марс)
         color_underground = (40, 15, 10)   # Темна земля
         
         transition_y = int(h * 0.5) # 50% висоти — це початок підземелля
@@ -968,3 +1481,388 @@ class TextureFactory:
                 noise_color = (25, 10, 5)
                 pygame.draw.rect(surf, noise_color, (x, y, gs // 2, gs // 2))
 
+
+  # Фоно об'єкти ------------------------------------
+    @staticmethod
+    def _draw_lab_bg(surf, w, h):
+        surf.fill((35, 45, 55))
+        tile = 32
+        
+        # Сітка (плитка)
+        for x in range(0, w, tile):
+            for y in range(0, h, tile):
+                pygame.draw.rect(surf, (45, 55, 65), (x, y, tile, tile), 1)
+
+        # -СИСТЕМНІ КАБЕЛІ- (0, 180, 255), (255, 120, 0), (80, 255, 100)
+        cable_colors = [(0, 90, 128), (128, 60, 0), (40, 128, 50)]
+        # Кількість довгих ліній залежить від розміру об'єкта
+        num_chains = (w * h) // 15000 + 2 
+
+        for _ in range(num_chains):
+            color = random.choice(cable_colors)
+            curr_x = random.randrange(0, w, tile) + tile // 2
+            curr_y = random.randrange(0, h, tile) + tile // 2
+            
+            # Кабель з 3-5 сегментів
+            num_segments = random.randint(3, 6)
+            for _ in range(num_segments):
+                # Напрямок (вгору, вниз, вліво, вправо)
+                dx, dy = random.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
+                # Довжина сегмента кратна плитці
+                length = random.randint(2, 5) * tile
+                
+                next_x = curr_x + dx * length
+                next_y = curr_y + dy * length
+                pygame.draw.line(surf, color, (curr_x, curr_y), (next_x, next_y), 3)
+                pygame.draw.rect(surf, (80, 80, 90), (curr_x - 3, curr_y - 3, 6, 6))
+                curr_x, curr_y = next_x, next_y
+
+        # -ТЕХНОЛОГІЧНІ ЩИТКИ-
+        for _ in range((w * h) // 35000 + 1):
+            px = random.randrange(0, w, tile) + 4
+            py = random.randrange(0, h, tile) + 4
+            # Корпус щитка
+            pygame.draw.rect(surf, (70, 80, 90), (px, py, 24, 24))
+            pygame.draw.rect(surf, (140, 140, 150), (px, py, 24, 24), 1)
+            # Сигнальний вогник
+            pygame.draw.rect(surf, (0, 255, 100), (px + 16, py + 4, 4, 4))
+
+    @staticmethod
+    def _draw_cave_bg(surf, w, h, gs):
+        """Суцільний фон печери: логіка глибокого підземелля без поверхні."""
+        base_color = (40, 15, 10)
+        surf.fill(base_color)
+
+        num_particles = (w * h) // (gs * 15)
+        
+        for _ in range(num_particles):
+            rx = random.randint(0, w - gs)
+            ry = random.randint(0, h - gs)
+            
+            rand_val = random.random()
+            if rand_val < 0.2:
+                p_color = (60, 25, 15)  # Світліші піщинки
+            elif rand_val < 0.4:
+                p_color = (25, 10, 5)   # Глибокі тіні
+            else:
+                continue
+                
+            pygame.draw.rect(surf, p_color, (rx, ry, gs // 2, gs // 2))
+
+    @staticmethod
+    def _draw_crystal_bg(surf, w, h, gs):
+        """Фон кристалічної печери.
+             Порода + темніший шар
+             Примусовою дистанція між."""
+        TextureFactory._draw_cave_bg(surf, w, h, gs)
+        
+        # Пресети дрогоціностей
+        crystal_presets = [
+            (0, 160, 190),   # Глибокий ціан
+            (140, 40, 180),  # Аметистовий
+            (40, 160, 40),   # Смарагдовий
+            (210, 140, 0)    # Янтарний
+        ]
+
+        dark_offset = 120 # темніший колір зі списку 0-255/колір-чорний
+        light_cr_color = 70 # Світлість кольору рамки і вкрапок
+        bg_presets = [
+            tuple(max(10, c - dark_offset) for c in color) 
+            for color in crystal_presets
+        ]
+        
+        # Чек ліст вже ісеуючих координат для дистанції каменів
+        placed_crystals = []
+        min_distance = 60  # Мінімальна дистанція між центрами 
+        
+        # Кількість спроб генерації (проти вічного циклу)
+        num_crystals = (w * h) // 20000 + 1 
+        max_attempts = 50 
+
+        for _ in range(num_crystals):
+            base_color = random.choice(bg_presets)
+            bright_color = tuple(min(255, c + light_cr_color) for c in base_color)
+            # Розмір кристалів
+            cw = random.randint(15, 35)
+            ch = random.randint(15, 35)
+
+            # Спроби знайти підходяще місце
+            for _ in range(max_attempts):
+                # Місце кристалів
+                cx = random.randint(5, w - cw - 5)
+                cy = random.randint(5, h - ch - 5)
+                new_center = pygame.Vector2(cx + cw // 2, cy + ch // 2)
+
+                # Перевірка відстані
+                too_close = False
+                for old_center in placed_crystals:
+                    if new_center.distance_to(old_center) < min_distance:
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    pygame.draw.rect(surf, base_color, (cx, cy, cw, ch))
+                    pygame.draw.rect(surf, bright_color, (cx, cy, cw, ch), 1)
+                    
+                    for _ in range(random.randint(2, 5)):
+                        sx = random.randint(cx + 2, cx + cw - 4)
+                        sy = random.randint(cy + 2, cy + ch - 4)
+                        pygame.draw.rect(surf, bright_color, (sx, sy, gs // 1, gs // 1))
+                    
+                    placed_crystals.append(new_center)
+                    break
+
+    @staticmethod
+    def _draw_toxic_bg(surf, w, h, gs):
+        """Фон токсичної печери
+             радіоактивна руда + печери
+        Структуровані поклади руди, що випирають з фону піксельними зернами."""
+        base_underground = (40, 15, 10)
+        surf.fill(base_underground)
+
+        for _ in range((w * h) // (gs * 20)):
+            rx, ry = random.randint(0, w - gs), random.randint(0, h - gs)
+            if random.random() < 0.2:
+                pygame.draw.rect(surf, (25, 10, 5), (rx, ry, gs // 2, gs // 2))
+
+        # Менша яскравість оригінальних кольорів
+        toxic_colors = [(20, 40, 8), (40, 80, 20), (10, 15, 5)]
+
+        placed_clusters = []
+        min_distance = 110 # Дистанція між покладами
+        
+        num_clusters = (w * h) // 30000 + 1 
+        max_attempts = 50 
+
+        for _ in range(num_clusters):
+            # Випадковий розмір
+            cw = random.randint(20, 100)
+            ch = random.randint(20, 100)
+
+            for _ in range(max_attempts):
+                cx = random.randint(10, w - cw - 10)
+                cy = random.randint(10, h - ch - 10)
+                new_center = pygame.Vector2(cx + cw // 2, cy + ch // 2)
+
+                too_close = False
+                for old_center in placed_clusters:
+                    if new_center.distance_to(old_center) < min_distance:
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    grains_count = (cw * ch) // (gs * 2) 
+                    for _ in range(grains_count):
+                        gx = cx + random.randint(0, cw - gs)
+                        gy = cy + random.randint(0, ch - gs)
+                        
+                        grain_color = random.choice(toxic_colors)
+                        pygame.draw.rect(surf, grain_color, (gx, gy, gs, gs))
+                        
+                        if random.random() > 0.8:
+                            pygame.draw.rect(surf, grain_color, (gx, gy, gs * 2, gs))
+
+                    placed_clusters.append(new_center)
+                    break
+
+
+  # Текстура гравця ---------------------------------
+    @staticmethod
+    def draw_energy_core(surf, base_color, gravity):
+        """
+        Малює динамічне енергетичне ядро.
+        surf: поверхня спрайту (зазвичай квадратна)
+        base_color: основний адаптивний колір гравця
+        gravity: кортеж гравітації, наприклад (0, 1) або (-1, 0)
+        """
+        w, h = surf.get_size()
+        center_x, center_y = w // 2, h // 2
+        
+        # 1. Визначаємо зсув ядра (протилежно вектору гравітації)
+        # Якщо гравітація (0, 1), то зміщуємо на -5 пікселів по Y
+        offset_dist = 6
+        offset_x = -gravity[0] * offset_dist
+        offset_y = -gravity[1] * offset_dist
+        
+        core_center = (center_x + offset_x, center_y + offset_y)
+
+        # 2. Створюємо "світлий" колір для центру
+        # Функція min(c + 100, 255) гарантує, що ми не вийдемо за межі RGB
+        bright_color = tuple(min(c + 100, 255) for c in base_color)
+        mid_color = tuple(min(c + 50, 255) for c in base_color)
+
+        # 3. Малюємо шари (від країв до центру)
+        # Фон (найтемніший)
+        surf.fill(base_color)
+        
+        # Середнє коло
+        pygame.draw.circle(surf, mid_color, core_center, w // 2.5)
+        
+        # Ядро (найсвітліше)
+        pygame.draw.circle(surf, bright_color, core_center, w // 5)
+
+        # 4. Додаємо легкий "відблиск" (опціонально)
+        glow_pos = (core_center[0] - 2, core_center[1] - 2)
+        pygame.draw.circle(surf, (255, 255, 255), glow_pos, 2)
+
+    @staticmethod
+    def draw_matrix_flow(surf, base_color, gravity, time_tick):
+        """Малює ефект цифрового потоку.
+        time_tick: лічильник кадрів"""
+        w, h = surf.get_size()
+        # Фон темний відтінок основного кольору
+        bg_dark = tuple(max(c - 100, 10) for c in base_color)
+        surf.fill(bg_dark)
+
+        num_strips = 8 # Кількість смужок
+        speed = 0.2    # Швидкість потоку
+
+        for i in range(num_strips):
+            # Дощ але стабільних смужок
+            offset = (i * (w // num_strips)) + 3
+            
+            flow_pos = (time_tick * speed + i * 15) % (h if gravity[1] != 0 else w)
+            # Колір смужки (оригінал)
+            strip_color = tuple(min(c + 50, 255) for c in base_color)
+    
+            # Координати залежно від гравітації
+            if gravity == (0, 1): # Вниз
+                pygame.draw.rect(surf, strip_color, (offset, flow_pos, 2, 10))
+            elif gravity == (0, -1): # Вгору
+                pygame.draw.rect(surf, strip_color, (offset, h - flow_pos, 2, 10))
+            elif gravity == (-1, 0): # Вліво
+                pygame.draw.rect(surf, strip_color, (w - flow_pos, offset, 10, 2))
+            elif gravity == (1, 0): # Вправо
+                pygame.draw.rect(surf, strip_color, (flow_pos, offset, 10, 2))
+            else: # Стандартний вигляд якщо гравітація 0
+                 pygame.draw.rect(surf, strip_color, (offset, flow_pos, 2, 8))
+
+    @staticmethod
+    def draw_crystalline_shards(surf, base_color, gravity):
+        """Малює ефект ограненого каменю."""
+        w, h = surf.get_size()
+        center = (w // 2, h // 2)
+        
+        top_left = (0, 0)
+        top_right = (w, 0)
+        bottom_left = (0, h)
+        bottom_right = (w, h)
+
+        # Світло світить ПРОТИ гравітації. 
+        # Якщо гравітація вниз (0, 1), світло зверху (0, -1)
+        light_dir = (-gravity[0], -gravity[1])
+
+        # Описуємо 4 грані (трикутники) та їх "нормалі" (куди вони дивляться)
+        # Нормаль потрібна для розрахунку освітлення
+        shards = [
+            {"points": [center, top_left, top_right],    "normal": (0, -1)},   # Верхня
+            {"points": [center, bottom_left, bottom_right], "normal": (0, 1)}, # Нижня
+            {"points": [center, top_left, bottom_left],  "normal": (-1, 0)},   # Ліва
+            {"points": [center, top_right, bottom_right], "normal": (1, 0)}    # Права
+        ]
+
+        for shard in shards:
+            # Від -1 (тінь) до 1 (відблиск)
+            dot = shard["normal"][0] * light_dir[0] + shard["normal"][1] * light_dir[1]
+            
+            # Якщо dot > 0 -> світліше, якщо dot < 0 -> темніше
+            shift = int(dot * 40) 
+            shard_color = tuple(max(0, min(255, c + shift)) for c in base_color)
+            pygame.draw.polygon(surf, shard_color, shard["points"])
+
+        # Тонкі лінії граней, бо можу
+        line_color = tuple(max(0, min(255, c + 60)) for c in base_color)
+        pygame.draw.line(surf, line_color, center, top_left, 1)
+        pygame.draw.line(surf, line_color, center, top_right, 1)
+        pygame.draw.line(surf, line_color, center, bottom_left, 1)
+        pygame.draw.line(surf, line_color, center, bottom_right, 1)
+        pygame.draw.rect(surf, line_color, (0, 0, w, h), 1)
+
+    @staticmethod
+    def draw_liquid_lava(surf, base_color, gravity, time_tick):
+        """Малює ефект "Рідкого наповнювача" з анімованою хвилею.
+            Казав що гравець з речовини, ось гіперполізація"""
+        w, h = surf.get_size()
+        # Світлий колір для "порожньої" частини (верх)
+        top_color = tuple(min(c + 80, 255) for c in base_color)
+        surf.fill(top_color)
+
+        # Параметри хвилі
+        wave_height = 5  # Амплітуда
+        frequency = 0.1  # Частота хвиль
+        speed = 0.005    # Швидкість руху
+        
+        points = []
+        if gravity[1] != 0:
+            is_down = gravity[1] > 0
+            for x in range(w + 1):
+                wave_y = math.sin(x * frequency + time_tick * speed) * wave_height
+                y_pos = (h * 0.4) + wave_y if is_down else (h * 0.6) + wave_y
+                points.append((x, y_pos))
+            
+            if is_down:
+                points.extend([(w, h), (0, h)])
+            else:
+                points.extend([(w, 0), (0, 0)])  
+        else:
+            is_right = gravity[0] > 0
+            for y in range(h + 1):
+                wave_x = math.sin(y * frequency + time_tick * speed) * wave_height
+                x_pos = (w * 0.4) + wave_x if is_right else (w * 0.6) + wave_x
+                points.append((x_pos, y))
+            
+            if is_right:
+                points.extend([(w, h), (w, 0)])
+            else:
+                points.extend([(0, h), (0, 0)])
+        if len(points) > 2:
+            pygame.draw.polygon(surf, base_color, points)
+            
+        # Рамочка щоб це була ємність
+        pygame.draw.rect(surf, (180, 180, 180), (0, 0, w, h), 2 )
+
+    @staticmethod
+    def draw_noise_dust_none(surf, base_color, gravity):
+        """Малює ефект піщаних частинок.
+        Частинки групуються біля краю, куди тягне гравітація."""
+        w, h = surf.get_size()
+        frame_color = tuple(min(c + 40, 255) for c in base_color)
+        num_particles = 150 # Кількість частинок-пікселів
+        for _ in range(num_particles):
+            
+            # Розрахунок координат по X
+            if gravity[0] > 0:   # Гравітація вправо
+                rx = random.random() ** 0.5
+            elif gravity[0] < 0: # Гравітація вліво
+                rx = random.random() ** 2.0
+            else:                # Рівномірно
+                rx = random.random()
+                
+            # Розрахунок координат по Y
+            if gravity[1] > 0:   # Гравітація вниз
+                ry = random.random() ** 0.5
+            elif gravity[1] < 0: # Гравітація вгору
+                ry = random.random() ** 2.0
+            else:                # Рівномірно
+                ry = random.random()
+
+            x = int(rx * (w - 2))
+            y = int(ry * (h - 2))
+            # Частинки світліші за фон
+            var = random.randint(40, 120) 
+            p_color = tuple(min(255, c + var) for c in base_color)
+            if random.random() > 0.9: # 10% частинок будуть супер-яскравими
+                p_color = (255, 255, 255)
+
+            # Частинка
+            pygame.draw.rect(surf, p_color, (x, y, 2, 2))
+        # Тонка рамка
+        pygame.draw.rect(surf, frame_color, (0, 0, w, h), 2)
+    # |||||||||||||||||||РАЗОМ||||||||||||||||||||
+    def draw_noise_dust(surf, base_color, gravity):
+        bg_color = base_color
+        surf.fill(bg_color)
+        
+        TextureFactory.draw_noise_dust_none(surf, base_color, gravity)
+
+    
