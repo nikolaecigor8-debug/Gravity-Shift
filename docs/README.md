@@ -87,9 +87,9 @@ ___________________________
 │   ├── LICENSE            
 │   ├── notes.txt          
 │   ├── README_EN.md       
-│   └── README.md          
+│   ├── README.md          
+│   └── requirements.txt   
 │                          
-├── requirements.txt       
 ├── START_HERE.py          
 └─────────────────────────┘
 ```
