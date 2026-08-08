@@ -1,5 +1,7 @@
 # Gravity Shift
 
+> English secondary version is available in the project as a draft/reference translation. See the English draft at [README_EN.md](README_EN.md). The project itself is Ukrainian and all current documentation remains in Ukrainian as the primary language.
+
 `Космічний платформер про пошук себе, гравітацію, простір і неочевидні правила світу.`
 
 > Лінійний платформер Gravity Shift
