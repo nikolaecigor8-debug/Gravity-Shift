@@ -111,6 +111,7 @@ Required libraries:
 For convenience, it is recommended to use `pip` and the `requirements.txt` file:
 
 ```bash
+cd docs
 pip install -r requirements.txt
 ```
 

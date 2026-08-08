@@ -111,6 +111,7 @@ ___________________________
 Для комфорту рекомендовано використовувати `pip` і файл `requirements.txt`:
 
 ```bash
+cd docs
 pip install -r requirements.txt
 ```
 
