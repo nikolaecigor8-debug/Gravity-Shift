@@ -81,6 +81,7 @@ ___________________________
 │   ├── main.py            
 │   └── objects.json       
 │                          
+├── LICENSE                
 ├── README.md              
 ├── requirements.txt       
 ├── START_HERE.py          
