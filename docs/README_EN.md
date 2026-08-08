@@ -89,7 +89,6 @@ ___________________________
 │   ├── README_EN.md       
 │   └── README.md          
 │                          
-├── README.md              
 ├── requirements.txt       
 ├── START_HERE.py          
 └─────────────────────────┘
