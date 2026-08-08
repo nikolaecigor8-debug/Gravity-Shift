@@ -5,13 +5,46 @@ import math
 import random
 import json
 import os
-from classes import Player, TextureFactory
+
+_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+_CORE_DIR = os.path.join(_ROOT_DIR, "core_v1")
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+from core_v1.classes import Player, TextureFactory, INF, WRN, ERR, DEV, SUC
+from colorama import init
 
 pygame.init()
 pygame.mixer.init()
+init(autoreset=True)
 
-WIDTH, HEIGHT = 1600, 900
+
+# Оригінальне вікно розроблянося на 2к дисплеї, 
+#  для менших або більших екранів, додано масштабування 
+#   яке ніяк не впливає на логіку гри (оригінальні обрахунки на 1600x900).
+BASE_WIDTH, BASE_HEIGHT = 1600, 900
+WIDTH, HEIGHT = BASE_WIDTH, BASE_HEIGHT
+
+info = pygame.display.Info()
+window_w = max(1100, int(info.current_w * 0.75))
+window_h = max(650, int(info.current_h * 0.75))
+SCREEN_WIDTH, SCREEN_HEIGHT = min(1400, window_w), min(800, window_h)
+
 FPS = 60
+
+# Всі координати живуть в розмірі 1600x900.
+#  А лише потім розтягується або стискається для користувача.
+screen = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
+display = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Gravity Shift - Головне Меню")
+clock = pygame.time.Clock()
+
+scale_x = SCREEN_WIDTH / BASE_WIDTH
+scale_y = SCREEN_HEIGHT / BASE_HEIGHT
+
+
+def to_virtual_mouse(mouse_pos):
+    return (mouse_pos[0] / scale_x, mouse_pos[1] / scale_y)
 
 BG_COLOR = (5, 5, 12)
 CYAN = (0, 220, 255)
@@ -20,17 +53,31 @@ GRAY = (180, 180, 180)
 RED = (180, 20, 40)
 DARK = (25, 25, 40)
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Gravity Shift - Головне Меню")
-clock = pygame.time.Clock()
 
 # ====================== ШРИФТИ =======================================
 
 title_font = pygame.font.SysFont("Consolas", 110, bold=True)
-mega_font  = pygame.font.SysFont("Consolas", 56, bold=True)
+mega_font  = pygame.font.SysFont("Consolas", 60, bold=True)
 big_font   = pygame.font.SysFont("Consolas", 32, bold=True)
 mid_font   = pygame.font.SysFont("Consolas", 22, bold=True)
 small_font = pygame.font.SysFont("Consolas", 18)
+
+# ====================== ЛОГО ТА АВАРІЙНИЙ ФОЛЬБЕК ====================
+logo_image = None
+logo_path = os.path.join(_ROOT_DIR, "MARS_world", "Resources", "Picture", "Logo_menu.png")
+if os.path.exists(logo_path):
+    try:
+        logo_image = pygame.image.load(logo_path).convert_alpha()
+        # Зменшимо логотип до розміру, близького до текстового заголовка
+        max_w = int(WIDTH * 2.4)
+        max_h = int(title_font.get_height() * 2.6)
+        w, h = logo_image.get_size()
+        if w > max_w or h > max_h:
+            scale = min(max_w / w, max_h / h)
+            logo_image = pygame.transform.smoothscale(logo_image, (int(w * scale), int(h * scale)))
+    except Exception as e:
+        print(f"{ERR} Помилка завантаження логотипу {logo_path}: {e} \n")
+        logo_image = None
 
 # ====================== ДОВІДКОВІ ДАНІ ===============================
 
@@ -60,26 +107,29 @@ ADVICE = {
     23: "Вгадайде що саме більше жерло мій проц всі ці часи? Нетягну, інфо панелі що оновлювалися 60 разів на секунду(",
     24: "Я пишаюся як зробив конвеєр стилів, тільки скіни гравців соло стали вау ефектом)",
     25: "Рух кнопок і обєктів в головному меню, зроблемі однією формулою тому достатньо змінити координати чи розмір щоб воно було різним.",
-    26: "Система збережень працює так, що видалить твій прогрем якщо ти грубо натисниш на X на вікні гри ;)"
+    26: "Система збережень працює так, що видалить твій прогрем якщо ти грубо натисниш на X на вікні гри ;)",
+    27: "Світло працює дуже цікаво. А для світла від сонця, щей з'являється засвіт на об'єктах.",
+    28: "README.md - документ інструкція по грі. Якщо ти ще не читав його, то рекомендую, там є купа корисної інформації про гру, її механіки та навіть секрети!",
+    29: "Анімація головного меню, плавність в кожному кадрі. І кожного разу я буду його модернізовувати. Як нарахунок зорепад?",
+    30: "Рефакторинг коду. Коли я писав свій перший README.md, я заодне вз'явся за зміни, щоб модинг став блище до реальності."
 }
 
 # ====================== ФАЙЛОВА СИСТЕМА ТА ЗБЕРЕЖЕННЯ ================
-save_file = "save.json"
+save_file = os.path.join(_ROOT_DIR, "core_v1", "save.json")
 save_data = {}
 
 default_save = {
     "world_id": "objects.json",
     "player": {"x": None, "y": None, "campfires": 0, "gravity": [0, 1]},
-    "settings": {"preset": "classic", "control_mode": "both", "window_size": [WIDTH, HEIGHT], "is_fullscreen": False},
-    "audio": {"volume": 0.1, "track_name": None, "track_pos": 0},
-    "dev": {"dev_mode": False}}
+    "settings": {"preset": "classic", "control_mode": "both", "is_fullscreen": False, "lighting_enabled": True, "white_light_active": True},
+    "audio": {"volume": 0.1, "track_name": None, "track_pos": 0}}
 
 try:
     if os.path.exists(save_file):
         with open(save_file, "r", encoding="utf-8") as f:
             save_data = json.load(f)
 except Exception as e:
-    print(f"Помилка читання {save_file}: {e}")
+    print(f"{ERR} Помилка читання {save_file}: {e} \n")
 
 settings_data = save_data.get("settings", {})
 audio_data    = save_data.get("audio", {})
@@ -90,7 +140,7 @@ saved_volume  = audio_data.get("volume", 0.1)
 
 # ====================== АУДІО ========================================
 
-pygame.mixer.music.load("Music/Clear Momentum.mp3") 
+pygame.mixer.music.load(os.path.join(_ROOT_DIR, "MARS_world", "Resources", "Music", "Clear Momentum.mp3")) 
 pygame.mixer.music.set_volume(saved_volume)
 pygame.mixer.music.play(-1)
 
@@ -116,6 +166,32 @@ class Camera:
         elif state == "PLAY":
             self.target_x, self.target_y = 0, -HEIGHT
 
+# --- ОПТИМІЗАЦІЯ: Глобальний фон із зірками (Starfield) ---
+class Starfield:
+    def __init__(self, w, h):
+        self.layers = []
+        # 3 шари паралаксу замість 500 окремих обчислень
+        for parallax in [0.15, 0.3, 0.45]:
+            surf = pygame.Surface((w * 2, h * 2), pygame.SRCALPHA)
+            for _ in range(120): # Кількість зірок на шар
+                x = random.randint(0, w * 2 - 1)
+                y = random.randint(0, h * 2 - 1)
+                r = random.randint(1, 3)
+                pygame.draw.circle(surf, (200, 200, 255), (x, y), r)
+            self.layers.append({"surf": surf.convert_alpha(), "p": parallax, "w": w * 2, "h": h * 2})
+
+    def draw(self, surface, cam_x, cam_y):
+        surface.fill(BG_COLOR)
+        for layer in self.layers:
+            # Створюємо ефект безкінечного прокручування
+            offset_x = -(cam_x * layer["p"]) % layer["w"]
+            offset_y = -(cam_y * layer["p"]) % layer["h"]
+            
+            surface.blit(layer["surf"], (offset_x, offset_y))
+            surface.blit(layer["surf"], (offset_x - layer["w"], offset_y))
+            surface.blit(layer["surf"], (offset_x, offset_y - layer["h"]))
+            surface.blit(layer["surf"], (offset_x - layer["w"], offset_y - layer["h"]))
+
 class MenuPlayer:
     active_drag = None 
     def __init__(self, x, y, bounds_rect, force_dir=None, is_main=False):
@@ -135,9 +211,9 @@ class MenuPlayer:
         
         # Налаштування індивідуальних параметрів швидкості та розміру
         if self.is_main:
-            self.size = int(self.player_data.size * 1.5)  # Робимо головного гравця помітно більшим
+            self.size = int(self.player_data.size * 1.5)  
             angle = random.uniform(0, 2 * math.pi)
-            self.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * 1.5  # Стартовий стабільний імпульс
+            self.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * 1.5  
         else:
             self.vel = pygame.Vector2(random.uniform(-2, 2), random.uniform(-2, 2))
             
@@ -168,9 +244,9 @@ class MenuPlayer:
             if self.is_main:
                 speed = self.vel.length()
                 if speed > 1.5:
-                    # Плавне сповільнення до стабільної швидкості (зберігаємо інерцію кидка)
+                    # Плавне сповільнення до стабільної швидкості (зберігається інерція кидка)
                     self.vel *= 0.98
-                    # Якщо швидкість впала нижче ліміту, жорстко фіксуємо її на 1.5
+                    # Коли швидкість впала нижче ліміту, жорстко фіксується на 1.5
                     if self.vel.length() < 1.5:
                         self.vel = self.vel.normalize() * 1.5
                 elif 0 < speed < 1.5:
@@ -213,7 +289,7 @@ class MenuPlayer:
 
             # Хаотичний нелінійний відскок для головного великого гравця
             if hit_wall and self.is_main:
-                # Додаємо випадковий розкид кута відскоку в межах +-15 градусів (дає кути 30-60 при 45)
+                # Випадковий розкид кута відскоку в межах +-15 градусів
                 self.vel = self.vel.rotate(random.uniform(-15, 15))
                 # Жорстке вирівнювання напрямку, щоб уникнути застрягання всередині колізії стіни
                 if self.pos.x <= self.bounds.left: self.vel.x = abs(self.vel.x)
@@ -227,7 +303,10 @@ class MenuPlayer:
 
         # --- ЗАПИС ПОЗИЦІЙ ДЛЯ ШЛЕЙФУ ---
         if self.player_data.current_preset == "classic" and self.vel.length() > 0.5:
-            self.player_data.ghost_positions.append((self.player_data.rect.copy(), self.player_data.image.copy()))
+            current_img = self.player_data.image
+            if self.is_main:
+                current_img = pygame.transform.scale(current_img, (self.size, self.size))
+            self.player_data.ghost_positions.append((self.pos.copy(), current_img))
             if len(self.player_data.ghost_positions) > self.player_data.max_ghosts:
                 self.player_data.ghost_positions.pop(0)
         else:
@@ -238,20 +317,15 @@ class MenuPlayer:
         # --- ДИНАМІЧНА КАДРОВКА АНІМАЦІЙ ---
         current_style = self.player_data.skin_styles.get(self.player_data.current_preset)
 
-        if current_style == "matrix_flow":
-            frame_limit = 30
-        elif current_style == "liquid_lava":
-            frame_limit = 10
-        elif current_style == "noise_dust":
-            frame_limit = 40
-        else:
-            frame_limit = 10 
+        if current_style == "matrix_flow": frame_limit = 30
+        elif current_style == "liquid_lava": frame_limit = 10
+        elif current_style == "noise_dust": frame_limit = 40
+        else: frame_limit = 10 
 
         if current_style in ("matrix_flow", "liquid_lava", "noise_dust"):
             self.player_data.visual_tick += 1
             if self.player_data.visual_tick >= frame_limit:
-                if self.force_dir:
-                    self.player_data.gravity_vec = pygame.Vector2(self.force_dir)
+                if self.force_dir: self.player_data.gravity_vec = pygame.Vector2(self.force_dir)
                 self.player_data.update_color()
                 self.player_data.visual_tick = 0
         else:
@@ -265,17 +339,12 @@ class MenuPlayer:
 
         # --- ВІДМАЛЬОВУВАННЯ ШЛЕЙФУ (CLASSIC) ---
         if self.player_data.current_preset == "classic":
-            for i, (ghost_rect, ghost_img) in enumerate(self.player_data.ghost_positions):
+            for i, (ghost_pos, ghost_img) in enumerate(self.player_data.ghost_positions):
                 alpha = int((i + 1) * (180 / len(self.player_data.ghost_positions)))
-                
-                temp_img = ghost_img.copy()
-                temp_img.set_alpha(alpha)
-                
-                if self.is_main:
-                    temp_img = pygame.transform.scale(temp_img, (self.size, self.size))
-                
-                ghost_draw_pos = pygame.Vector2(ghost_rect.topleft) - pygame.Vector2(cam_x, cam_y)
-                surface.blit(temp_img, ghost_draw_pos)
+                ghost_img.set_alpha(alpha)
+                ghost_draw_pos = ghost_pos - pygame.Vector2(cam_x, cam_y)
+                surface.blit(ghost_img, ghost_draw_pos)
+                ghost_img.set_alpha(255)
 
         # --- ВІДМАЛЬОВУВАННЯ ГРАВЦЯ ---
         img = self.player_data.image
@@ -283,23 +352,19 @@ class MenuPlayer:
             img = pygame.transform.scale(img, (self.size, self.size))
             
         surface.blit(img, draw_pos)
-
-        # --- ВІДМАЛЬОВУВАННЯ ОБЛИЧЧЯ ---
         self.draw_face(surface, cam_x, cam_y)
 
     def draw_face(self, surface, cam_x, cam_y):
         if not self.is_main: 
-            return # Малюємо обличчя ТІЛЬКИ для головного кубика
+            return # Малюється обличчя ТІЛЬКИ для головного кубика
         
         t = pygame.time.get_ticks() / 1000.0
-        
         # Координати центру гравця на екрані
         cx = self.pos.x - cam_x + self.size / 2
         cy = self.pos.y - cam_y + self.size / 2
         
         # Колір обличчя (затемнений основний колір скіна)
         dark_color = [int(c * 0.3) for c in self.player_data.color]
-        
         # Коефіцієнт масштабу (у грі базовий розмір 50, а в меню він збільшений)
         scale_ratio = self.size / 50.0
         
@@ -327,17 +392,15 @@ class MenuPlayer:
         mh = int((6 + dynamic_stretch) * scale_ratio)
         
         # Базові відстані
-        eye_dist = 10.5 * scale_ratio
-        
+        eye_dist = 10 * scale_ratio
+
         # Очі "з'їжджаються" при русі вбік
         left_eye_dist = eye_dist
         right_eye_dist = eye_dist
-        if move_vel_x > 1:
-            left_eye_dist *= 0.6
-        elif move_vel_x < -1:
-            right_eye_dist *= 0.6
+        if move_vel_x > 1: left_eye_dist *= 0.6
+        elif move_vel_x < -1: right_eye_dist *= 0.6
             
-        eye_depth = -13 * scale_ratio
+        eye_depth = -11 * scale_ratio
         mouth_depth = 6 * scale_ratio
         
         # Кінцеві позиції по Y
@@ -351,7 +414,6 @@ class MenuPlayer:
         
         mouth_rect = pygame.Rect(int(cx - mw / 2 + shift_x), int(m_y - mh / 2), mw, mh)
         
-        # Рендеринг на екран
         for eye in eyes_pos:
             pygame.draw.rect(surface, dark_color, eye)
         pygame.draw.rect(surface, dark_color, mouth_rect)
@@ -359,11 +421,13 @@ class MenuPlayer:
 # ====================== КЛАСИ ІНТЕРФЕЙСУ (UI) ========================
 
 class DriftingButton:
-    def __init__(self, text, base_x, base_y, action, font_size=32, color_theme="default"):
+    def __init__(self, text, base_x, base_y, action, font_size=32, color_theme="default", shift_x_coeff=0.0, shift_y_coeff=0.0):
         self.text = text
         self.base_x = base_x
         self.base_y = base_y
         self.action = action
+        self.shift_x_coeff = shift_x_coeff
+        self.shift_y_coeff = shift_y_coeff
         
         # Створюємо унікальний шрифт для кнопки з урахуванням переданого розміру
         custom_font = pygame.font.SysFont("Consolas", font_size, bold=True)
@@ -382,59 +446,65 @@ class DriftingButton:
             self.hover_color = (40, 40, 60)
             self.border_color = WHITE
             
-        self.surf = custom_font.render(text, True, WHITE)
-        self.w = self.surf.get_width() + 60
-        self.h = self.surf.get_height() + 40
+        self.surf_text = custom_font.render(text, True, WHITE)
+        self.w = self.surf_text.get_width() + 60
+        self.h = self.surf_text.get_height() + 40
         self.hovered = False
         self.time_offset = random.uniform(0, math.pi * 2)
 
-    def get_current_transform(self):
+        self.normal_surf = self._create_surf(self.base_color)
+        self.hover_surf = self._create_surf(self.hover_color)
+
+    def _create_surf(self, bg_color):
+        btn_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+        pygame.draw.rect(btn_surf, bg_color, (0, 0, self.w, self.h), border_radius=10)
+        pygame.draw.rect(btn_surf, self.border_color, (0, 0, self.w, self.h), 2, border_radius=10)
+        txt_rect = self.surf_text.get_rect(center=(self.w//2, self.h//2))
+        btn_surf.blit(self.surf_text, txt_rect)
+        return btn_surf
+
+    def get_current_transform(self, cam_x=0, cam_y=0):
         t = pygame.time.get_ticks() / 1000.0 + self.time_offset
         dx = math.sin(t * 0.8) * 20
         dy = math.cos(t * 1.2) * 15
         angle = math.sin(t * 0.5) * 3 
-        
-        x = self.base_x + dx
-        y = self.base_y + dy
-        return x, y, angle
+        return self.base_x + dx + cam_x * self.shift_x_coeff, self.base_y + dy + cam_y * self.shift_y_coeff, angle
 
     def update(self, mouse_pos, cam_x, cam_y):
-        x, y, _ = self.get_current_transform()
+        x, y, _ = self.get_current_transform(cam_x, cam_y)
         screen_x = x - cam_x
         screen_y = y - cam_y
-        
         rect = pygame.Rect(screen_x - self.w//2, screen_y - self.h//2, self.w, self.h)
         self.hovered = rect.collidepoint(mouse_pos)
         return self.hovered
 
     def draw(self, surface, cam_x, cam_y):
-        x, y, angle = self.get_current_transform()
+        x, y, angle = self.get_current_transform(cam_x, cam_y)
         screen_x = x - cam_x
         screen_y = y - cam_y
 
-        # Використовуємо кольори з обраної теми
-        color = self.base_color if not self.hovered else self.hover_color
+        current_surf = self.hover_surf if self.hovered else self.normal_surf
         
-        btn_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
-        pygame.draw.rect(btn_surf, color, (0, 0, self.w, self.h), border_radius=10)
-        pygame.draw.rect(btn_surf, self.border_color, (0, 0, self.w, self.h), 2, border_radius=10)
-        
-        txt_rect = self.surf.get_rect(center=(self.w//2, self.h//2))
-        btn_surf.blit(self.surf, txt_rect)
-
-        rotated_surf = pygame.transform.rotate(btn_surf, angle)
+        rotated_surf = pygame.transform.rotate(current_surf, angle)
         rot_rect = rotated_surf.get_rect(center=(screen_x, screen_y))
         
         surface.blit(rotated_surf, rot_rect)
 
 class PlanetNode:
-    def __init__(self, x, y, name, radius, color):
+    def __init__(self, x, y, name, radius, image_path):
         self.x = x
         self.y = y
         self.name = name
         self.radius = radius
-        self.color = color
         self.hovered = False
+        
+        self.image = None
+        if os.path.exists(image_path):
+            try:
+                self.image = pygame.image.load(image_path).convert_alpha()
+                self.image = pygame.transform.scale(self.image, (radius * 2, radius * 2))
+            except Exception as e:
+                print(f"{ERR} Помилка завантаження текстури планети {image_path}: {e} \n")
 
     def update(self, mouse_pos, cam_x, cam_y):
         screen_x = self.x - cam_x
@@ -445,14 +515,19 @@ class PlanetNode:
     def draw(self, surface, cam_x, cam_y):
         screen_x = self.x - cam_x
         screen_y = self.y - cam_y
-        
-        if self.hovered:
-            pygame.draw.circle(surface, WHITE, (int(screen_x), int(screen_y)), self.radius + 15, 2)
-            lbl = big_font.render(self.name, True, WHITE)
-            surface.blit(lbl, (screen_x - lbl.get_width()//2, screen_y + self.radius + 25))
 
-        pygame.draw.circle(surface, self.color, (int(screen_x), int(screen_y)), self.radius)
-        pygame.draw.circle(surface, (0, 0, 0), (int(screen_x), int(screen_y)), self.radius, 3)
+        # Обведення при наведенні миші 
+        if self.hovered:
+            pygame.draw.circle(surface, WHITE, (int(screen_x), int(screen_y)), self.radius + 0, 2)
+            lbl = big_font.render(self.name, True, WHITE)
+            surface.blit(lbl, (screen_x - lbl.get_width()//2, screen_y + self.radius + 10))
+
+        # Відображення картинки Марса
+        if self.image:
+            surface.blit(self.image, (int(screen_x - self.radius), int(screen_y - self.radius)))
+        else:
+            pygame.draw.circle(surface, (180, 60, 30), (int(screen_x), int(screen_y)), self.radius)
+            pygame.draw.circle(surface, (0, 0, 0), (int(screen_x), int(screen_y)), self.radius, 3)
 
 class DebrisNode:
     def __init__(self, text, x, y, w, h, action, drift_group=None):
@@ -469,7 +544,6 @@ class DebrisNode:
         dx = self.drift_group.dx if self.drift_group else 0
         dy = self.drift_group.dy if self.drift_group else 0
         
-        # Розраховуємо реальну позицію з урахуванням левітації
         curr_x = self.base_x + dx
         curr_y = self.base_y + dy
         
@@ -508,11 +582,9 @@ class KeyCrossNode:
         self.drift_group = drift_group
 
     def draw(self, surface, cam_x, cam_y):
-        # Отримуємо зміщення від групи левітації
         dx = self.drift_group.dx if self.drift_group else 0
         dy = self.drift_group.dy if self.drift_group else 0
         
-        # Додаємо зміщення до координат
         screen_x = self.x + dx - cam_x
         screen_y = self.y + dy - cam_y
         size = 70
@@ -644,21 +716,19 @@ class MenuLabDecoration:
         self.rect = pygame.Rect(x, y, w, h)
         self.obj_type = obj_type
         self.image = TextureFactory.get_texture(obj_type, w, h)
-        self.drift_group = drift_group # Зберігаємо посилання на групу
+        self.drift_group = drift_group 
 
     def draw(self, surface, cam_x, cam_y):
-        # Отримуємо поточне зміщення групи
         dx = self.drift_group.dx if self.drift_group else 0
         dy = self.drift_group.dy if self.drift_group else 0
 
-        # Додаємо dx та dy до фінальних координат
         screen_x = self.rect.x + dx - cam_x
         screen_y = self.rect.y + dy - cam_y
         surface.blit(self.image, (screen_x, screen_y))
 
 class DriftGroup:
     def __init__(self, time_offset, amp_x=12, amp_y=8, speed=1.0):
-        self.time_offset = time_offset  # Для розсинхрону різних груп
+        self.time_offset = time_offset # Для розсинхрону різних груп
         self.amp_x = amp_x
         self.amp_y = amp_y
         self.speed = speed
@@ -673,20 +743,14 @@ class DriftGroup:
 # ====================== СТВОРЕННЯ ОБ'ЄКТІВ ТА ІНСТАНЦІЙ ==============
 camera = Camera()
 
-# Створюємо групи левітації
+# Групи левітації
 group_controls = DriftGroup(time_offset=0)
 group_skins    = DriftGroup(time_offset=2.5)
 group_advice   = DriftGroup(time_offset=5.0)
 group_volume   = DriftGroup(time_offset=7.5)
 
-# Генерація зірок
-stars = []
-for _ in range(500):
-    stars.append({
-        "x": random.randint(-WIDTH, WIDTH * 2),
-        "y": random.randint(-HEIGHT * 2, HEIGHT * 2),
-        "r": random.randint(1, 3),
-        "parallax": random.uniform(0.1, 0.5)})
+# Ініціалізація оптимізованого зоряного неба
+stars_bg = Starfield(WIDTH, HEIGHT)
 
 # Гравці
 main_bounds = pygame.Rect(0, 0, WIDTH, HEIGHT)
@@ -697,27 +761,21 @@ preview_bounds = pygame.Rect(WIDTH + 1050, 140, 400, 300)
 physics_bounds = preview_bounds.inflate(-4, -4)
 
 skin_previews = [
-    MenuPlayer(WIDTH + 1150, 250, physics_bounds, force_dir=(0, 1),  is_main=False),  # Вниз
-    MenuPlayer(WIDTH + 1250, 250, physics_bounds, force_dir=(0, -1), is_main=False),  # Вверх
-    MenuPlayer(WIDTH + 1150, 350, physics_bounds, force_dir=(-1, 0), is_main=False),  # Вліво
-    MenuPlayer(WIDTH + 1250, 350, physics_bounds, force_dir=(1, 0),  is_main=False)]  # Вправо
+    MenuPlayer(WIDTH + 1150, 250, physics_bounds, force_dir=(0, 1),  is_main=False),  
+    MenuPlayer(WIDTH + 1250, 250, physics_bounds, force_dir=(0, -1), is_main=False),  
+    MenuPlayer(WIDTH + 1150, 350, physics_bounds, force_dir=(-1, 0), is_main=False),  
+    MenuPlayer(WIDTH + 1250, 350, physics_bounds, force_dir=(1, 0),  is_main=False)]  
 
 # ---===--- UI Елементи ---===---
 # Кнопки навігації головного меню
 main_buttons = [
-    DriftingButton("ДО ПРИГОД",        WIDTH // 2,       HEIGHT // 2 - 50,  "GO_PLAY"),
-    DriftingButton("НАЛАШТУНКИ",       WIDTH // 2 + 450, HEIGHT // 2 + 100, "GO_SETTINGS"),
-    DriftingButton("ПОКИНУТИ ПРОСТІР", WIDTH // 2 - 250, HEIGHT // 2 + 300, "QUIT")]
-
-# Кнопки навігації головного меню
-main_buttons = [
-    DriftingButton("ДО ПРИГОД",        WIDTH // 2,       HEIGHT // 2,       "GO_PLAY",     font_size=50, color_theme="green"),
-    DriftingButton("НАЛАШТУНКИ",       WIDTH // 2 - 280, HEIGHT // 2 + 150, "GO_SETTINGS", font_size=40, color_theme="default"),
-    DriftingButton("ПОКИНУТИ ПРОСТІР", WIDTH // 2 + 280, HEIGHT // 2 + 170, "QUIT",        font_size=30, color_theme="red")]
+    DriftingButton("ДО ПРИГОД",        WIDTH // 2,       HEIGHT // 2,       "GO_PLAY",     font_size=50, color_theme="green",   shift_x_coeff=-0.5, shift_y_coeff=-0.6),
+    DriftingButton("НАЛАШТУНКИ",       WIDTH // 2 - 280, HEIGHT // 2 + 150, "GO_SETTINGS", font_size=40, color_theme="default", shift_x_coeff=-0.9, shift_y_coeff=-1.5),
+    DriftingButton("ПОКИНУТИ ПРОСТІР", WIDTH // 2 + 280, HEIGHT // 2 + 170, "QUIT",        font_size=30, color_theme="red",     shift_x_coeff=-0.6, shift_y_coeff=-1.8)]
 
 # Кнопки планети рівнів
 levels = [
-    PlanetNode(WIDTH // 2, -HEIGHT // 2, "Марс", 85, (180, 60, 30))]
+    PlanetNode(WIDTH // 2, -HEIGHT // 2, "Марс", 125, os.path.join(_ROOT_DIR, "MARS_world", "Resources", "Picture", "MARS_pik.png"))]
 
 # Кнопки діалогу прогресу
 confirm_buttons = [
@@ -729,61 +787,35 @@ settings_debris = [
     DebrisNode("СКІН",      WIDTH + 830, HEIGHT//2 - 220, 180, 120, "TOGGLE_SKIN", drift_group=group_skins),
     DebrisNode("КЕРУВАННЯ", WIDTH + 200, HEIGHT//2 - 250, 300, 120, "TOGGLE_CTRL", drift_group=group_controls)]
 
-# Креслення клавіш
+# Креслення клавіш / Панель з порадами / Повзунок гучності
 key_cross = KeyCrossNode(WIDTH + 340, HEIGHT//2 - 20, drift_group=group_controls)
-
-# Панель з порадами
 advice_panel = AdviceNode(WIDTH + 890, HEIGHT - 350, 400, 250, drift_group=group_advice)
-
-# Повзунок гучності
 volume_slider = VolumeSliderNode(WIDTH + 370, HEIGHT - 160, 300, 10, drift_group=group_volume)
 
 # Об'єкти лабораторії
 lab_decorations_data = [
-    # --- Фон та платформи лабораторії ---
-        # Ліво верхня частина, перемикач керування
+        # --- Фон та платформи лабораторії ---
     {"x": WIDTH + WIDTH // 2 - 650, "y": HEIGHT // 2 - 280, "w": 400, "h": 340, "type": "lab_bg", "group": group_controls},
     {"x": WIDTH + WIDTH // 2 - 720, "y": HEIGHT // 2 - 320, "w": 70,  "h": 340, "type": "lab",    "group": group_controls},
     {"x": WIDTH + WIDTH // 2 - 720, "y": HEIGHT // 2 - 350, "w": 500, "h": 70,  "type": "lab",    "group": group_controls},
-    
-        # Право верхня частина, перемикач скінів
     {"x": WIDTH + WIDTH // 2 - 20,  "y": HEIGHT // 2 - 340, "w": 700, "h": 360, "type": "lab_bg", "group": group_skins},
     {"x": WIDTH + WIDTH // 2 + 680, "y": HEIGHT // 2 - 340, "w": 70,  "h": 340, "type": "lab",    "group": group_skins},
     {"x": WIDTH + WIDTH // 2 + 10,  "y": HEIGHT // 2 - 410, "w": 740, "h": 70,  "type": "lab",    "group": group_skins},
-    
-        # Центру право-нижня частина, поради дня
     {"x": WIDTH + WIDTH // 2 + 60,  "y": HEIGHT // 2 + 50,  "w": 470, "h": 330, "type": "lab_bg", "group": group_advice},
     {"x": WIDTH + WIDTH // 2 + 530, "y": HEIGHT // 2 + 120, "w": 70, "h": 260, "type": "lab",     "group": group_advice},
     {"x": WIDTH + WIDTH // 2 + 20,  "y": HEIGHT // 2 + 380, "w": 580,"h": 60,  "type": "lab",     "group": group_advice},
-
-        # Центру ліво-нижня частина, гучність
-    {"x": WIDTH + WIDTH // 2 - 460,  "y": HEIGHT // 2 + 220, "w": 360, "h": 130, "type": "lab_bg", "group": group_volume},
-    {"x": WIDTH + WIDTH // 2 - 480, "y": HEIGHT // 2 + 350, "w": 400,  "h": 60, "type": "lab",     "group": group_volume},
-
-        # Фрагменти стіни
-    {"x": WIDTH + WIDTH // 2 + 650, "y": HEIGHT // 2 + 80,  "w": 90,  "h": 60,  "type": "lab", "group": group_volume},
-    {"x": WIDTH + WIDTH // 2 - 670, "y": HEIGHT // 2 + 110, "w": 60,  "h": 150, "type": "lab", "group": group_skins}]
-
+    {"x": WIDTH + WIDTH // 2 - 460, "y": HEIGHT // 2 + 220, "w": 360, "h": 130, "type": "lab_bg", "group": group_volume},
+    {"x": WIDTH + WIDTH // 2 - 480, "y": HEIGHT // 2 + 350, "w": 400, "h": 60,  "type": "lab",     "group": group_volume},
+    {"x": WIDTH + WIDTH // 2 + 650, "y": HEIGHT // 2 + 80,  "w": 90,  "h": 60,  "type": "lab",     "group": group_volume},
+    {"x": WIDTH + WIDTH // 2 - 670, "y": HEIGHT // 2 + 110, "w": 60,  "h": 150, "type": "lab",     "group": group_skins}]
 
 # Генерація списку об'єктів класу
-lab_decorations = [
-    MenuLabDecoration(d["x"], d["y"], d["w"], d["h"], d["type"], drift_group=d["group"]) 
-    for d in lab_decorations_data]
-
+lab_decorations = [MenuLabDecoration(d["x"], d["y"], d["w"], d["h"], d["type"], drift_group=d["group"]) for d in lab_decorations_data]
 # ====================== ДОПОМІЖНІ ФУНКЦІЇ ============================
 
-def draw_stars(surface, cam_x, cam_y):
-    surface.fill(BG_COLOR)
-    for star in stars:
-        sx = star["x"] - cam_x * star["parallax"]
-        sy = star["y"] - cam_y * star["parallax"]
-        if -10 < sx < WIDTH + 10 and -10 < sy < HEIGHT + 10:
-            pygame.draw.circle(surface, (200, 200, 255), (int(sx), int(sy)), star["r"])
-
-def draw_static_back(surface, cam_x, cam_y):
+def draw_static_back(surface, cam_x, cam_y, mouse_pos):
     if abs(cam_x) > 100 or abs(cam_y) > 100:
         rect = pygame.Rect(40, HEIGHT - 100, 200, 60)
-        mouse_pos = pygame.mouse.get_pos()
         hovered = rect.collidepoint(mouse_pos)
         
         color = RED if not hovered else (220, 50, 70)
@@ -796,10 +828,8 @@ def draw_static_back(surface, cam_x, cam_y):
     return None, False
 
 def save_and_play():
-    if "settings" not in save_data:
-        save_data["settings"] = {}
-    if "audio" not in save_data:
-        save_data["audio"] = {}
+    if "settings" not in save_data: save_data["settings"] = {}
+    if "audio" not in save_data: save_data["audio"] = {}
 
     save_data["settings"]["preset"] = menu_player.player_data.current_preset
     save_data["settings"]["control_mode"] = menu_player.player_data.control_mode
@@ -808,7 +838,7 @@ def save_and_play():
     with open(save_file, "w", encoding="utf-8") as f:
         json.dump(save_data, f, ensure_ascii=False, indent=4)
     
-    subprocess.Popen([sys.executable, "main.py"])
+    subprocess.Popen([sys.executable, os.path.join(_ROOT_DIR, "MARS_world", "main.py")], cwd=os.path.join(_ROOT_DIR, "MARS_world"))
     pygame.quit()
     sys.exit()
 
@@ -817,9 +847,9 @@ def standart_progress():
     try:
         with open(save_file, "w", encoding="utf-8") as f:
             json.dump(default_save, f, ensure_ascii=False, indent=4)
-        print("Прогрес та налаштування повністю скинуто до заводських.")
+        print(f"{WRN} Прогрес та налаштування повністю скинуто до звичайних. \n")
     except Exception as e:
-        print(f"Помилка при скиданні налаштувань: {e}")
+        print(f"{ERR} Помилка при скиданні налаштувань: {e} \n")
 
 def has_progress():
     """Перевіряє, чи є у гравця реальний прогрес у світі."""
@@ -834,6 +864,7 @@ current_state = "MAIN"
 
 while running:
     mouse_pos = pygame.mouse.get_pos()
+    mouse_pos = to_virtual_mouse(mouse_pos)
     mouse_pressed = pygame.mouse.get_pressed()
     
     for event in pygame.event.get():
@@ -842,7 +873,7 @@ while running:
             running = False
             
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            back_rect, is_hovered = draw_static_back(screen, camera.x, camera.y)
+            back_rect, is_hovered = draw_static_back(screen, camera.x, camera.y, mouse_pos)
             if back_rect and is_hovered:
                 current_state = "MAIN"
                 camera.move_to(current_state)
@@ -866,7 +897,6 @@ while running:
                     for btn in confirm_buttons:
                         if btn.hovered:
                             if btn.action == "NEW_GAME":
-                                # Скидаємо прогрес гравця до стандартного
                                 save_data["player"] = default_save["player"].copy()
                                 save_data["world_id"] = default_save["world_id"]
                                 save_and_play()
@@ -875,17 +905,14 @@ while running:
                 else:
                     for lvl in levels:
                         if lvl.hovered:
-                            if has_progress():
-                                show_progress_dialog = True
-                            else:
-                                save_and_play()
+                            if has_progress(): show_progress_dialog = True
+                            else: save_and_play()
                         
             elif current_state == "SETTINGS":
                 for deb in settings_debris:
                     if deb.hovered:
                         if deb.action == "TOGGLE_SKIN":
                             menu_player.player_data.switch_skin()
-                            # Оновлюємо скіни міні-гравців
                             new_preset = menu_player.player_data.current_preset
                             for mp in skin_previews:
                                 mp.player_data.current_preset = new_preset
@@ -902,7 +929,6 @@ while running:
     group_skins.update()
     group_advice.update()
     group_volume.update()
-
 
     # Оновлення логіки
     camera.update()
@@ -928,7 +954,7 @@ while running:
         deb.update(mouse_pos, camera.x, camera.y)
 
     # Рендеринг
-    draw_stars(screen, camera.x, camera.y)
+    stars_bg.draw(screen, camera.x, camera.y)
 
     # --- ДОДАНО: Відмальовування декорацій лабораторії ---
     for decor in lab_decorations:
@@ -938,12 +964,23 @@ while running:
 
     # СЕКЦІЯ: ГОЛОВНЕ МЕНЮ (0, 0)
     if not show_progress_dialog:
-        title_x = WIDTH // 2 - title_font.size("GRAVITY SHIFT")[0] // 2 - camera.x
-        title_y = 80 - camera.y * 0.8
-        shadow = title_font.render("GRAVITY SHIFT", True, (20, 20, 20))
-        txt    = title_font.render("GRAVITY SHIFT", True, CYAN)
-        screen.blit(shadow, (title_x - 4, title_y + 6))
-        screen.blit(txt, (title_x, title_y))
+        if logo_image:
+            img = logo_image
+            t = pygame.time.get_ticks() / 1000.0
+            dx = math.sin(t * 0.8) * 10
+            dy = math.cos(t * 1.1) * 8
+            angle = math.sin(t * 0.45) * 2.5
+            rotated_img = pygame.transform.rotate(img, angle)
+            img_x = WIDTH // 2 - rotated_img.get_width() // 2 - camera.x + dx
+            img_y = camera.y * 0.9 + dy
+            screen.blit(rotated_img, (img_x, img_y))
+        else:
+            title_x = WIDTH // 2 - title_font.size("GRAVITY SHIFT")[0] // 2 - camera.x
+            title_y = 80 - camera.y * 0.8
+            shadow = title_font.render("GRAVITY SHIFT", True, (25,25,25))
+            txt    = title_font.render("GRAVITY SHIFT", True, CYAN)
+            screen.blit(shadow, (title_x - 4, title_y + 5))
+            screen.blit(txt, (title_x, title_y))
 
     for btn in main_buttons:
         btn.draw(screen, camera.x, camera.y)   
@@ -955,33 +992,27 @@ while running:
     advice_panel.draw(screen, camera.x, camera.y)
     volume_slider.draw(screen, camera.x, camera.y)
     
-    # Малюємо зону прев'ю
-    dx = group_skins.dx
-    dy = group_skins.dy
+    # Малює зону прев'ю
+    dx, dy = group_skins.dx, group_skins.dy
     
-    # Додаємо левітацію до рамки
-    preview_rect = pygame.Rect(
-        preview_bounds.x + dx - camera.x, 
-        preview_bounds.y + dy - camera.y, 
-        preview_bounds.w, 
-        preview_bounds.h
-    )
+    # Левітація до рамки
+    preview_rect = pygame.Rect(preview_bounds.x + dx - camera.x, preview_bounds.y + dy - camera.y, preview_bounds.w, preview_bounds.h)
     pygame.draw.rect(screen, DARK, preview_rect, border_radius=12)
     pygame.draw.rect(screen, (60, 70, 80), preview_rect, 2, border_radius=12)
     
     lbl_preview = small_font.render("Інтерактивна тестова зона", True, GRAY)
     screen.blit(lbl_preview, (preview_rect.x + 15, preview_rect.y - 20))
     
-    # Малюємо міні-гравців, передаючи їм додаткове зміщення через камеру
+    # Малює міні-гравців, передаючи їм додаткове зміщення через камеру
     for mp in skin_previews:
-        # Віднімаємо dx/dy від камери суто для малювання, щоб вони рухалися з рамкою
+        # Віднімає dx/dy від камери суто для малювання, щоб вони рухалися з рамкою
         mp.draw(screen, camera.x - dx, camera.y - dy)
 
     # СЕКЦІЯ: ГРАТИ (0, -HEIGHT)
     if not show_progress_dialog:
         story_lbl = mega_font.render("ВИБРАТИ НОВУ ІСТОРІЮ", True, WHITE)
         story_x = WIDTH // 2 - story_lbl.get_width() // 2 - camera.x
-        story_y = 30 - HEIGHT - camera.y
+        story_y = 40 - HEIGHT - camera.y
         screen.blit(story_lbl, (story_x, story_y))
 
     if show_progress_dialog:
@@ -997,12 +1028,13 @@ while running:
             lvl.draw(screen, camera.x, camera.y)
 
     # Static UI (кнопка назад)
-    draw_static_back(screen, camera.x, camera.y)
+    draw_static_back(screen, camera.x, camera.y, mouse_pos)
 
+    scaled = pygame.transform.smoothscale(screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    display.blit(scaled, (0, 0))
     pygame.display.flip()
     clock.tick(FPS)
 pygame.quit()
 
 
-
-
+# M.

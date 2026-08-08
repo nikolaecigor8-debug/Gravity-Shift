@@ -1,0 +1,24 @@
+{
+    "world_id": "objects.json",
+    "player": {
+        "x": null,
+        "y": null,
+        "campfires": 0,
+        "gravity": [
+            0,
+            1
+        ]
+    },
+    "settings": {
+        "preset": "classic",
+        "control_mode": "both",
+        "is_fullscreen": false,
+        "lighting_enabled": true,
+        "white_light_active": true
+    },
+    "audio": {
+        "volume": 0.1,
+        "track_name": null,
+        "track_pos": 0
+    }
+}
