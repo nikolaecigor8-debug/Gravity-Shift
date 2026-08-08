@@ -1,4 +1,0 @@
-pygame
-colorama
-moderngl
-numpy
