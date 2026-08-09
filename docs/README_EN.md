@@ -204,12 +204,21 @@ My computer is not one of the most powerful either, so my code has been focused 
 - Keep the developer mode and other debugging settings turned off (these panels update periodically);
 - Use simpler modes with fewer active objects and logic;
 - And for the more advanced modders, try to avoid an excessive number of objects in the world. Where possible, use one or fewer.
+- If you want to make startup faster on your PC, you can precompile the Python source into bytecode (`.pyc` cache). This is not an `exe` package and it does not improve FPS, but it may reduce initialization time on repeated launches:
+
+```powershell
+python -m compileall -f core_v1 MARS_world START_HERE.py
+```
+
+> This is useful as a pre-launch preparation for the same Python environment, not as a replacement for a desktop executable binary.
+
 
 > (Undeveloped point)
 >
 > To create objects that are on the surface and under the shadow, use `"indoor": true` in the `platforms` dictionary to artificially remove sunlight.
 
 > (More points will be added here)
+
 
 ---
 
